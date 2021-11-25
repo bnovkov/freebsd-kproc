@@ -1,0 +1,12 @@
+#pragma once
+
+#define _KAS
+#include <sys/kas.h>
+
+
+int kas__no_components = {{no_components}};
+struct kas_component kas__components[] = {
+                     {% for line in kas_component_list -%}
+                        {{line}},
+                     {% endfor -%}
+                     };
