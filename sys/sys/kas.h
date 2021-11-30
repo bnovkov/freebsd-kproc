@@ -1,8 +1,12 @@
 #pragma once
 
+#include <sys/types.h>
+#include <vm/vm.h>
+
 #if defined(_KERNEL)
 
-int kas_init(void);
+int kas_init(void *data);
+void __kas_generated_init(void *data);
 int __kas_kirc_call(void); /* Used for indirect, function pointer calls */
 int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
 
@@ -15,6 +19,12 @@ int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
 #define  KAS_PROT_WRITE 0x2
 #define  KAS_PROT_EXEC  0x4
 #define  KAS_PROT_RW    (KAS_PROT_READ | KAS_PROT_WRITE)
+
+
+/*
+ * Protection mechanism interface definition
+ */
+int kas_protect(vm_offset_t start, vm_offset_t end, vm_prot_t prot, int flags);
 
 /*
  * BST node
@@ -35,19 +45,21 @@ enum ComponentType {
   SYSCALL
 };
 
-struct kas_region_info {
-  vm_offset_t region_start;
-  vm_offset_t region_end;
+struct kas_component_layout {
+  vm_offset_t base;
+  vm_offset_t text_end;
+  vm_offset_t data_end;
+  vm_offset_t rodata_end;
+  vm_offset_t bss_end;
 };
 
 struct kas_component {
   int idx;
   enum ComponentType type;
-  const char[32] name;
+  const char name[32];
 
-  struct kas_region_info info;
+  struct kas_component_layout layout;
 };
-
 
 /*
  * Helper functions used to grant access to kas data.

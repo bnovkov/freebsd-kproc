@@ -21,10 +21,6 @@ SECTIONS
   .gnu.version_d  : { *(.gnu.version_d) }
   .gnu.version_r  : { *(.gnu.version_r) }
 
-  {% for line in kas_includes -%}
-  {{ line }}
-  {% endfor %}
-  
   .rel.init       : { *(.rel.init) }
   .rela.init      : { *(.rela.init) }
   .rel.text       : { *(.rel.text .rel.text.* .rel.gnu.linkonce.t.*) }
@@ -61,6 +57,10 @@ SECTIONS
     kern_kas.o(.text)
   }  
 
+  {% for line in kas_text_includes -%}
+  {{ line }}
+  {% endfor %}
+
   .text           :
   {
     *(.text .stub .text.* .gnu.linkonce.t.*)
@@ -77,6 +77,11 @@ SECTIONS
   PROVIDE (__etext = .);
   PROVIDE (_etext = .);
   PROVIDE (etext = .);
+
+  {% for line in kas_component_includes -%}
+  {{ line }}
+  {% endfor %}
+
   .rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
   .rodata1        : { *(.rodata1) }
   .note.gnu.build-id : {
@@ -171,6 +176,10 @@ SECTIONS
     *(.data.exclusive_cache_line)
   }
   . = ALIGN(128);
+  {% for line in kas_data_includes -%}
+  {{ line }}
+  {% endfor %}
+
   .data           :
   {
     *(.data .data.* .gnu.linkonce.d.*)
@@ -180,6 +189,7 @@ SECTIONS
   .vmkern.data : { kern_kas.o (.data)}
   _edata = .; PROVIDE (edata = .);
   __bss_start = .;
+
   .bss            :
   {
    *(.dynbss)

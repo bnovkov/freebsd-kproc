@@ -1,8 +1,10 @@
-#pragma once
-
 #define _KAS
-#include <sys/kas.h>
 
+#include <sys/kas.h>
+#include <sys/param.h>
+#include <sys/kernel.h>
+#include <vm/pmap.h>
+#include <vm/vm_map.h>
 
 int kas__no_components = {{no_components}};
 struct kas_component kas__components[] = {
@@ -10,3 +12,15 @@ struct kas_component kas__components[] = {
                         {{line}},
                      {% endfor -%}
                      };
+
+{{ ldscript_symbols }}
+
+
+{{ initializers }}
+
+
+void __kas_generated_init(void *data){
+   {% for line in initializer_invocations -%}
+   {{line}};
+   {% endfor -%}
+}
