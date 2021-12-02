@@ -57,7 +57,7 @@ SECTIONS
     kern_kas.o(.text)
   }  
 
-  {% for line in kas_text_includes -%}
+  {% for line in kas_component_includes -%}
   {{ line }}
   {% endfor %}
 
@@ -77,10 +77,6 @@ SECTIONS
   PROVIDE (__etext = .);
   PROVIDE (_etext = .);
   PROVIDE (etext = .);
-
-  {% for line in kas_component_includes -%}
-  {{ line }}
-  {% endfor %}
 
   .rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
   .rodata1        : { *(.rodata1) }
