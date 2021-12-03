@@ -11,6 +11,7 @@ int __kas_kirc_call(void); /* Used for indirect, function pointer calls */
 int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
 
 
+
 #if defined(_KAS)
 
 
@@ -21,10 +22,6 @@ int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
 #define  KAS_PROT_RW    (KAS_PROT_READ | KAS_PROT_WRITE)
 
 
-/*
- * Protection mechanism interface definition
- */
-int kas_protect(vm_offset_t start, vm_offset_t end, vm_prot_t prot, int flags);
 
 /*
  * BST node
@@ -61,11 +58,27 @@ struct kas_component {
   struct kas_component_layout layout;
 };
 
+
+
+int kas_protect(vm_offset_t start, vm_offset_t end, vm_prot_t prot, int flags);
+
 /*
- * Helper functions used to grant access to kas data.
+ * Protection mechanism interface definition
  */
-void __kas_activate_priv_ctx(void);
-void __kas_deactivate_priv_ctx(void);
+int __kas_activate_component(int component_desc);
+int __kas_deactivate_component(int component_desc);
+/* Helper functions used for "privilege switching", i.e. entering/leaving the kas kernel. */
+void __kas_enter(void);
+void __kas_leave(void);
+
+/*
+ * Machine-dependent protection mechanism interface
+ */
+int  __kas_md_activate_component(int component_desc);
+int  __kas_md_deactivate_component(int component_desc);
+void __kas_md_enter(void);
+void __kas_md_leave(void);
+
 
 #endif /* _KAS */
 #endif /* _KERNEL */
