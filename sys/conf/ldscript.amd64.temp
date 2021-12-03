@@ -53,9 +53,7 @@ SECTIONS
   } =0xCCCCCCCC
   .plt            : { *(.plt)}
 
-  .vmkern.text : ALIGN(4096) {
-    kern_kas.o(.text)
-  }  
+  INCLUDE /home/bojan/freebsd-src/sys/kas/kas.ldscript
 
   {% for line in kas_component_includes -%}
   {{ line }}
