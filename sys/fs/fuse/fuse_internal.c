@@ -477,7 +477,6 @@ fuse_internal_invalidate_entry(struct mount *mp, struct uio *uio)
 
 	cn.cn_nameiop = LOOKUP;
 	cn.cn_flags = 0;	/* !MAKEENTRY means free cached entry */
-	cn.cn_thread = curthread;
 	cn.cn_cred = curthread->td_ucred;
 	cn.cn_lkflags = LK_SHARED;
 	cn.cn_pnbuf = NULL;
@@ -560,7 +559,7 @@ fuse_internal_readdir(struct vnode *vp,
     struct fuse_filehandle *fufh,
     struct fuse_iov *cookediov,
     int *ncookies,
-    u_long *cookies)
+    uint64_t *cookies)
 {
 	int err = 0;
 	struct fuse_dispatcher fdi;
@@ -626,7 +625,7 @@ fuse_internal_readdir_processdata(struct uio *uio,
     size_t bufsize,
     struct fuse_iov *cookediov,
     int *ncookies,
-    u_long **cookiesp)
+    uint64_t **cookiesp)
 {
 	int err = 0;
 	int oreclen;
@@ -634,7 +633,7 @@ fuse_internal_readdir_processdata(struct uio *uio,
 
 	struct dirent *de;
 	struct fuse_dirent *fudge;
-	u_long *cookies;
+	uint64_t *cookies;
 
 	cookies = *cookiesp;
 	if (bufsize < FUSE_NAME_OFFSET)
@@ -729,7 +728,7 @@ fuse_internal_remove(struct vnode *dvp,
 	int err = 0;
 
 	fdisp_init(&fdi, cnp->cn_namelen + 1);
-	fdisp_make_vp(&fdi, op, dvp, cnp->cn_thread, cnp->cn_cred);
+	fdisp_make_vp(&fdi, op, dvp, curthread, cnp->cn_cred);
 
 	memcpy(fdi.indata, cnp->cn_nameptr, cnp->cn_namelen);
 	((char *)fdi.indata)[cnp->cn_namelen] = '\0';
@@ -781,7 +780,7 @@ fuse_internal_rename(struct vnode *fdvp,
 	int err = 0;
 
 	fdisp_init(&fdi, sizeof(*fri) + fcnp->cn_namelen + tcnp->cn_namelen + 2);
-	fdisp_make_vp(&fdi, FUSE_RENAME, fdvp, tcnp->cn_thread, tcnp->cn_cred);
+	fdisp_make_vp(&fdi, FUSE_RENAME, fdvp, curthread, tcnp->cn_cred);
 
 	fri = fdi.indata;
 	fri->newdir = VTOI(tdvp);
@@ -813,7 +812,7 @@ fuse_internal_newentry_makerequest(struct mount *mp,
 {
 	fdip->iosize = bufsize + cnp->cn_namelen + 1;
 
-	fdisp_make(fdip, op, mp, dnid, cnp->cn_thread, cnp->cn_cred);
+	fdisp_make(fdip, op, mp, dnid, curthread, cnp->cn_cred);
 	memcpy(fdip->indata, buf, bufsize);
 	memcpy((char *)fdip->indata + bufsize, cnp->cn_nameptr, cnp->cn_namelen);
 	((char *)fdip->indata)[bufsize + cnp->cn_namelen] = '\0';
@@ -840,7 +839,7 @@ fuse_internal_newentry_core(struct vnode *dvp,
 	}
 	err = fuse_vnode_get(mp, feo, feo->nodeid, dvp, vpp, cnp, vtyp);
 	if (err) {
-		fuse_internal_forget_send(mp, cnp->cn_thread, cnp->cn_cred,
+		fuse_internal_forget_send(mp, curthread, cnp->cn_cred,
 		    feo->nodeid, 1);
 		return err;
 	}
@@ -926,6 +925,7 @@ fuse_internal_do_getattr(struct vnode *vp, struct vattr *vap,
 	struct fuse_getattr_in *fgai;
 	struct fuse_attr_out *fao;
 	off_t old_filesize = fvdat->cached_attrs.va_size;
+	struct timespec old_atime = fvdat->cached_attrs.va_atime;
 	struct timespec old_ctime = fvdat->cached_attrs.va_ctime;
 	struct timespec old_mtime = fvdat->cached_attrs.va_mtime;
 	enum vtype vtyp;
@@ -950,6 +950,10 @@ fuse_internal_do_getattr(struct vnode *vp, struct vattr *vap,
 	vtyp = IFTOVT(fao->attr.mode);
 	if (fvdat->flag & FN_SIZECHANGE)
 		fao->attr.size = old_filesize;
+	if (fvdat->flag & FN_ATIMECHANGE) {
+		fao->attr.atime = old_atime.tv_sec;
+		fao->attr.atimensec = old_atime.tv_nsec;
+	}
 	if (fvdat->flag & FN_CTIMECHANGE) {
 		fao->attr.ctime = old_ctime.tv_sec;
 		fao->attr.ctimensec = old_ctime.tv_nsec;
@@ -1209,6 +1213,10 @@ int fuse_internal_setattr(struct vnode *vp, struct vattr *vap,
 		fsai->valid |= FATTR_ATIME;
 		if (vap->va_vaflags & VA_UTIMES_NULL)
 			fsai->valid |= FATTR_ATIME_NOW;
+	} else if (fvdat->flag & FN_ATIMECHANGE) {
+		fsai->atime = fvdat->cached_attrs.va_atime.tv_sec;
+		fsai->atimensec = fvdat->cached_attrs.va_atime.tv_nsec;
+		fsai->valid |= FATTR_ATIME;
 	}
 	if (vap->va_mtime.tv_sec != VNOVAL) {
 		fsai->mtime = vap->va_mtime.tv_sec;
@@ -1247,17 +1255,20 @@ int fuse_internal_setattr(struct vnode *vp, struct vattr *vap,
 	                 * STALE vnode, ditch
 	                 *
 			 * The vnode has changed its type "behind our back".
+			 * This probably means that the file got deleted and
+			 * recreated on the server, with the same inode.
 			 * There's nothing really we can do, so let us just
-			 * force an internal revocation and tell the caller to
-			 * try again, if interested.
+			 * return ENOENT.  After all, the entry must not have
+			 * existed in the recent past.  If the user tries
+			 * again, it will work.
 	                 */
 			fuse_internal_vnode_disappear(vp);
-			err = EAGAIN;
+			err = ENOENT;
 		}
 	}
 	if (err == 0) {
 		struct fuse_attr_out *fao = (struct fuse_attr_out*)fdi.answ;
-		fuse_vnode_undirty_cached_timestamps(vp);
+		fuse_vnode_undirty_cached_timestamps(vp, true);
 		fuse_internal_cache_attrs(vp, &fao->attr, fao->attr_valid,
 			fao->attr_valid_nsec, NULL, false);
 	}

@@ -123,6 +123,8 @@ SRCS+=	__getosreldate.c \
 	scandir.c \
 	scandir_b.c \
 	scandir-compat11.c \
+	sched_getaffinity.c \
+	sched_setaffinity.c \
 	seed48.c \
 	seekdir.c \
 	semctl.c \
@@ -461,7 +463,10 @@ MLINKS+=modf.3 modff.3 \
 MLINKS+=popen.3 pclose.3
 MLINKS+=posix_spawn.3 posix_spawnp.3 \
 	posix_spawn_file_actions_addopen.3 posix_spawn_file_actions_addclose.3 \
+	posix_spawn_file_actions_addopen.3 posix_spawn_file_actions_addclosefrom_np.3 \
 	posix_spawn_file_actions_addopen.3 posix_spawn_file_actions_adddup2.3 \
+	posix_spawn_file_actions_addopen.3 posix_spawn_file_actions_addchdir_np.3 \
+	posix_spawn_file_actions_addopen.3 posix_spawn_file_actions_addfchdir_np.3 \
 	posix_spawn_file_actions_init.3 posix_spawn_file_actions_destroy.3 \
 	posix_spawnattr_getflags.3 posix_spawnattr_setflags.3 \
 	posix_spawnattr_getpgroup.3 posix_spawnattr_setpgroup.3 \

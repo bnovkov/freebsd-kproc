@@ -82,6 +82,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_seq.h>
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
+#include <netinet/tcp_hpts.h>
 #ifdef INET6
 #include <netinet6/tcp6_var.h>
 #endif
@@ -176,10 +177,10 @@ SYSCTL_PROC(_net_inet_tcp, OID_AUTO, maxtcptw,
     &maxtcptw, 0, sysctl_maxtcptw, "IU",
     "Maximum number of compressed TCP TIME_WAIT entries");
 
-VNET_DEFINE_STATIC(int, nolocaltimewait) = 0;
+VNET_DEFINE_STATIC(bool, nolocaltimewait) = true;
 #define	V_nolocaltimewait	VNET(nolocaltimewait)
-SYSCTL_INT(_net_inet_tcp, OID_AUTO, nolocaltimewait, CTLFLAG_VNET | CTLFLAG_RW,
-    &VNET_NAME(nolocaltimewait), 0,
+SYSCTL_BOOL(_net_inet_tcp, OID_AUTO, nolocaltimewait, CTLFLAG_VNET | CTLFLAG_RW,
+    &VNET_NAME(nolocaltimewait), true,
     "Do not create compressed TCP TIME_WAIT entries for local connections");
 
 void
@@ -275,16 +276,17 @@ tcp_twstart(struct tcpcb *tp)
 		 * Reached limit on total number of TIMEWAIT connections
 		 * allowed. Remove a connection from TIMEWAIT queue in LRU
 		 * fashion to make room for this connection.
+		 * If that fails, use on stack tw at least to be able to
+		 * run through tcp_twrespond() and standard tcpcb discard
+		 * routine.
 		 *
 		 * XXX:  Check if it possible to always have enough room
 		 * in advance based on guarantees provided by uma_zalloc().
 		 */
 		tw = tcp_tw_2msl_scan(1);
 		if (tw == NULL) {
-			tp = tcp_close(tp);
-			if (tp != NULL)
-				INP_WUNLOCK(inp);
-			return;
+			tw = &twlocal;
+			local = true;
 		}
 	}
 	/*
@@ -342,6 +344,9 @@ tcp_twstart(struct tcpcb *tp)
 	 * Note: soisdisconnected() call used to be made in tcp_discardcb(),
 	 * and might not be needed here any longer.
 	 */
+#ifdef TCPHPTS
+	tcp_hpts_remove(inp, HPTS_REMOVE_ALL);
+#endif
 	tcp_discardcb(tp);
 	soisdisconnected(so);
 	tw->tw_so_options = so->so_options;

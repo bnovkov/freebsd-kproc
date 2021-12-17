@@ -755,7 +755,7 @@ acpi_suspend(device_t dev)
 {
     int error;
 
-    GIANT_REQUIRED;
+    bus_topo_assert();
 
     error = bus_generic_suspend(dev);
     if (error == 0)
@@ -768,7 +768,7 @@ static int
 acpi_resume(device_t dev)
 {
 
-    GIANT_REQUIRED;
+    bus_topo_assert();
 
     acpi_set_power_children(dev, ACPI_STATE_D0);
 
@@ -779,7 +779,7 @@ static int
 acpi_shutdown(device_t dev)
 {
 
-    GIANT_REQUIRED;
+    bus_topo_assert();
 
     /* Allow children to shutdown first. */
     bus_generic_shutdown(dev);
@@ -1849,9 +1849,10 @@ acpi_bus_get_prop(device_t bus, device_t child, const char *propname,
 			memcpy(propvalue, obj->Buffer.Pointer,
 			    MIN(size, obj->Buffer.Length));
 		return (obj->Buffer.Length);
-	}
 
-	return (-1);
+	default:
+		return (0);
+	}
 }
 
 int
@@ -3232,10 +3233,9 @@ acpi_EnterSleepState(struct acpi_softc *sc, int state)
 #endif
 
     /*
-     * Be sure to hold Giant across DEVICE_SUSPEND/RESUME since non-MPSAFE
-     * drivers need this.
+     * Be sure to hold Giant across DEVICE_SUSPEND/RESUME
      */
-    mtx_lock(&Giant);
+    bus_topo_lock();
 
     slp_state = ACPI_SS_NONE;
 
@@ -3361,7 +3361,7 @@ backout:
     }
     sc->acpi_next_sstate = 0;
 
-    mtx_unlock(&Giant);
+    bus_topo_unlock();
 
 #ifdef EARLY_AP_STARTUP
     thread_lock(curthread);

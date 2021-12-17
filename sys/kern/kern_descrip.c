@@ -107,6 +107,9 @@ VFS_SMR_DECLARE;
 
 static int	closefp(struct filedesc *fdp, int fd, struct file *fp,
 		    struct thread *td, bool holdleaders, bool audit);
+static void	export_file_to_kinfo(struct file *fp, int fd,
+		    cap_rights_t *rightsp, struct kinfo_file *kif,
+		    struct filedesc *fdp, int flags);
 static int	fd_first_free(struct filedesc *fdp, int low, int size);
 static void	fdgrowtable(struct filedesc *fdp, int nfd);
 static void	fdgrowtable_exp(struct filedesc *fdp, int nfd);
@@ -477,7 +480,8 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 	struct proc *p;
 	struct vnode *vp;
 	struct mount *mp;
-	int error, flg, seals, tmp;
+	struct kinfo_file *kif;
+	int error, flg, kif_sz, seals, tmp;
 	uint64_t bsize;
 	off_t foffset;
 
@@ -852,6 +856,41 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		fdrop(fp, td);
 		break;
 
+	case F_KINFO:
+#ifdef CAPABILITY_MODE
+		if (IN_CAPABILITY_MODE(td)) {
+			error = ECAPMODE;
+			break;
+		}
+#endif
+		error = copyin((void *)arg, &kif_sz, sizeof(kif_sz));
+		if (error != 0)
+			break;
+		if (kif_sz != sizeof(*kif)) {
+			error = EINVAL;
+			break;
+		}
+		kif = malloc(sizeof(*kif), M_TEMP, M_WAITOK | M_ZERO);
+		FILEDESC_SLOCK(fdp);
+		error = fget_cap_locked(fdp, fd, &cap_fcntl_rights, &fp, NULL);
+		if (error == 0 && fhold(fp)) {
+			export_file_to_kinfo(fp, fd, NULL, kif, fdp, 0);
+			FILEDESC_SUNLOCK(fdp);
+			fdrop(fp, td);
+			if ((kif->kf_status & KF_ATTR_VALID) != 0) {
+				kif->kf_structsize = sizeof(*kif);
+				error = copyout(kif, (void *)arg, sizeof(*kif));
+			} else {
+				error = EBADF;
+			}
+		} else {
+			FILEDESC_SUNLOCK(fdp);
+			if (error == 0)
+				error = EBADF;
+		}
+		free(kif, M_TEMP);
+		break;
+
 	default:
 		error = EINVAL;
 		break;
@@ -906,7 +945,7 @@ kern_dup(struct thread *td, u_int mode, int flags, int old, int new)
 	FILEDESC_XLOCK(fdp);
 	if (fget_locked(fdp, old) == NULL)
 		goto unlock;
-	if ((mode == FDDUP_FIXED || mode == FDDUP_MUSTREPLACE) && old == new) {
+	if (mode == FDDUP_FIXED && old == new) {
 		td->td_retval[0] = new;
 		if (flags & FDDUP_FLAG_CLOEXEC)
 			fdp->fd_ofiles[new].fde_flags |= UF_EXCLOSE;
@@ -928,13 +967,6 @@ kern_dup(struct thread *td, u_int mode, int flags, int old, int new)
 	case FDDUP_NORMAL:
 	case FDDUP_FCNTL:
 		if ((error = fdalloc(td, new, &new)) != 0) {
-			fdrop(oldfp, td);
-			goto unlock;
-		}
-		break;
-	case FDDUP_MUSTREPLACE:
-		/* Target file descriptor must exist. */
-		if (fget_locked(fdp, new) == NULL) {
 			fdrop(oldfp, td);
 			goto unlock;
 		}
@@ -1534,7 +1566,7 @@ kern_fstat(struct thread *td, int fd, struct stat *sbp)
 
 	AUDIT_ARG_FILE(td->td_proc, fp);
 
-	error = fo_stat(fp, sbp, td->td_ucred, td);
+	error = fo_stat(fp, sbp, td->td_ucred);
 	fdrop(fp, td);
 #ifdef __STAT_TIME_T_EXT
 	sbp->st_atim_ext = 0;
@@ -1568,10 +1600,11 @@ freebsd11_nfstat(struct thread *td, struct freebsd11_nfstat_args *uap)
 	int error;
 
 	error = kern_fstat(td, uap->fd, &ub);
-	if (error == 0) {
-		freebsd11_cvtnstat(&ub, &nub);
+	if (error != 0)
+		return (error);
+	error = freebsd11_cvtnstat(&ub, &nub);
+	if (error != 0)
 		error = copyout(&nub, uap->sb, sizeof(nub));
-	}
 	return (error);
 }
 #endif /* COMPAT_FREEBSD11 */
@@ -2320,14 +2353,6 @@ pdunshare(struct thread *td)
 	p->p_pd = pdp;
 }
 
-void
-fdinstall_remapped(struct thread *td, struct filedesc *fdp)
-{
-
-	fdescfree(td);
-	td->td_proc->p_fd = fdp;
-}
-
 /*
  * Copy a filedesc structure.  A NULL pointer in returns a NULL reference,
  * this is to ease callers, not catch errors.
@@ -2378,66 +2403,6 @@ pdcopy(struct pwddesc *pdp)
 	newpdp->pd_cmask = pdp->pd_cmask;
 	PWDDESC_XUNLOCK(pdp);
 	return (newpdp);
-}
-
-/*
- * Copies a filedesc structure, while remapping all file descriptors
- * stored inside using a translation table.
- *
- * File descriptors are copied over to the new file descriptor table,
- * regardless of whether the close-on-exec flag is set.
- */
-int
-fdcopy_remapped(struct filedesc *fdp, const int *fds, size_t nfds,
-    struct filedesc **ret)
-{
-	struct filedesc *newfdp;
-	struct filedescent *nfde, *ofde;
-	int error, i, lastfile;
-
-	MPASS(fdp != NULL);
-
-	newfdp = fdinit(fdp, true, &lastfile);
-	if (nfds > lastfile + 1) {
-		/* New table cannot be larger than the old one. */
-		error = E2BIG;
-		goto bad;
-	}
-	/* Copy all passable descriptors (i.e. not kqueue). */
-	newfdp->fd_freefile = nfds;
-	for (i = 0; i < nfds; ++i) {
-		if (fds[i] < 0 || fds[i] > lastfile) {
-			/* File descriptor out of bounds. */
-			error = EBADF;
-			goto bad;
-		}
-		ofde = &fdp->fd_ofiles[fds[i]];
-		if (ofde->fde_file == NULL) {
-			/* Unused file descriptor. */
-			error = EBADF;
-			goto bad;
-		}
-		if ((ofde->fde_file->f_ops->fo_flags & DFLAG_PASSABLE) == 0) {
-			/* File descriptor cannot be passed. */
-			error = EINVAL;
-			goto bad;
-		}
-		if (!fhold(ofde->fde_file)) {
-			error = EBADF;
-			goto bad;
-		}
-		nfde = &newfdp->fd_ofiles[i];
-		*nfde = *ofde;
-		filecaps_copy(&ofde->fde_caps, &nfde->fde_caps, true);
-		fdused_init(newfdp, i);
-	}
-	FILEDESC_SUNLOCK(fdp);
-	*ret = newfdp;
-	return (0);
-bad:
-	FILEDESC_SUNLOCK(fdp);
-	fdescfree_remapped(newfdp);
-	return (error);
 }
 
 /*
@@ -2526,7 +2491,7 @@ retry:
  * Release a filedesc structure.
  */
 static void
-fdescfree_fds(struct thread *td, struct filedesc *fdp, bool needclose)
+fdescfree_fds(struct thread *td, struct filedesc *fdp)
 {
 	struct filedesc0 *fdp0;
 	struct freetable *ft, *tft;
@@ -2551,10 +2516,7 @@ fdescfree_fds(struct thread *td, struct filedesc *fdp, bool needclose)
 		fp = fde->fde_file;
 		if (fp != NULL) {
 			fdefree_last(fde);
-			if (needclose)
-				(void) closef(fp, td);
-			else
-				fdrop(fp, td);
+			(void) closef(fp, td);
 		}
 	}
 
@@ -2598,7 +2560,7 @@ fdescfree(struct thread *td)
 	if (refcount_release(&fdp->fd_refcnt) == 0)
 		return;
 
-	fdescfree_fds(td, fdp, 1);
+	fdescfree_fds(td, fdp);
 }
 
 void
@@ -2619,17 +2581,6 @@ pdescfree(struct thread *td)
 	PROC_WAIT_UNLOCKED(p);
 
 	pddrop(pdp);
-}
-
-void
-fdescfree_remapped(struct filedesc *fdp)
-{
-#ifdef INVARIANTS
-	/* fdescfree_fds() asserts that fd_refcnt == 0. */
-	if (!refcount_release(&fdp->fd_refcnt))
-		panic("%s: fd table %p has extra references", __func__, fdp);
-#endif
-	fdescfree_fds(curthread, fdp, 0);
 }
 
 /*
@@ -2992,7 +2943,7 @@ fgetvp_lookup_smr(int fd, struct nameidata *ndp, struct vnode **vpp, bool *fsear
 		return (EAGAIN);
 	*fsearch = ((fp->f_flag & FSEARCH) != 0);
 	vp = fp->f_vnode;
-	if (__predict_false(vp == NULL || vp->v_type != VDIR)) {
+	if (__predict_false(vp == NULL)) {
 		return (EAGAIN);
 	}
 	if (!filecaps_copy(&fde->fde_caps, &ndp->ni_filecaps, false)) {
@@ -3302,8 +3253,9 @@ _fget(struct thread *td, int fd, struct file **fpp, int flags,
 			error = EBADF;
 		break;
 	case FEXEC:
-	    	if ((fp->f_flag & (FREAD | FEXEC)) == 0 ||
-		    ((fp->f_flag & FWRITE) != 0))
+		if (fp->f_ops != &path_fileops &&
+		    ((fp->f_flag & (FREAD | FEXEC)) == 0 ||
+		    (fp->f_flag & FWRITE) != 0))
 			error = EBADF;
 		break;
 	case 0:
@@ -4960,8 +4912,7 @@ badfo_kqfilter(struct file *fp, struct knote *kn)
 }
 
 static int
-badfo_stat(struct file *fp, struct stat *sb, struct ucred *active_cred,
-    struct thread *td)
+badfo_stat(struct file *fp, struct stat *sb, struct ucred *active_cred)
 {
 
 	return (EBADF);

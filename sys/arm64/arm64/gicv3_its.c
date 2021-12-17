@@ -1025,9 +1025,7 @@ static void
 gicv3_its_pre_ithread(device_t dev, struct intr_irqsrc *isrc)
 {
 	struct gicv3_its_irqsrc *girq;
-	struct gicv3_its_softc *sc;
 
-	sc = device_get_softc(dev);
 	girq = (struct gicv3_its_irqsrc *)isrc;
 	gic_icc_write(EOIR1, girq->gi_lpi + GIC_FIRST_LPI);
 }
@@ -1042,9 +1040,7 @@ static void
 gicv3_its_post_filter(device_t dev, struct intr_irqsrc *isrc)
 {
 	struct gicv3_its_irqsrc *girq;
-	struct gicv3_its_softc *sc;
 
-	sc = device_get_softc(dev);
 	girq = (struct gicv3_its_irqsrc *)isrc;
 	gic_icc_write(EOIR1, girq->gi_lpi + GIC_FIRST_LPI);
 }
@@ -1124,7 +1120,8 @@ its_get_devid(device_t pci_dev)
 	uintptr_t id;
 
 	if (pci_get_id(pci_dev, PCI_ID_MSI, &id) != 0)
-		panic("its_get_devid: Unable to get the MSI DeviceID");
+		panic("%s: %s: Unable to get the MSI DeviceID", __func__,
+		    device_get_nameunit(pci_dev));
 
 	return (id);
 }

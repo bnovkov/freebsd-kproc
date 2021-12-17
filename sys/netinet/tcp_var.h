@@ -908,7 +908,6 @@ VNET_DECLARE(int, tcp_sc_rst_sock_fail);
 VNET_DECLARE(int, tcp_sendspace);
 VNET_DECLARE(int, tcp_udp_tunneling_overhead);
 VNET_DECLARE(int, tcp_udp_tunneling_port);
-VNET_DECLARE(struct inpcbhead, tcb);
 VNET_DECLARE(struct inpcbinfo, tcbinfo);
 
 #define	V_tcp_do_lrd			VNET(tcp_do_lrd)
@@ -917,7 +916,6 @@ VNET_DECLARE(struct inpcbinfo, tcbinfo);
 #define	V_tcp_do_newcwv			VNET(tcp_do_newcwv)
 #define	V_drop_synfin			VNET(drop_synfin)
 #define	V_path_mtu_discovery		VNET(path_mtu_discovery)
-#define	V_tcb				VNET(tcb)
 #define	V_tcbinfo			VNET(tcbinfo)
 #define	V_tcp_abc_l_var			VNET(tcp_abc_l_var)
 #define	V_tcp_autorcvbuf_max		VNET(tcp_autorcvbuf_max)
@@ -967,6 +965,7 @@ int	 tcp_ccalgounload(struct cc_algo *unload_algo);
 struct tcpcb *
 	 tcp_close(struct tcpcb *);
 void	 tcp_discardcb(struct tcpcb *);
+bool	 tcp_freecb(struct tcpcb *);
 void	 tcp_twstart(struct tcpcb *);
 void	 tcp_twclose(struct tcptw *, int);
 void	 tcp_ctlinput(int, struct sockaddr *, void *);
@@ -1020,6 +1019,7 @@ int register_tcp_functions_as_name(struct tcp_function_block *blk,
 int deregister_tcp_functions(struct tcp_function_block *blk, bool quiesce,
     bool force);
 struct tcp_function_block *find_and_ref_tcp_functions(struct tcp_function_set *fs);
+int find_tcp_function_alias(struct tcp_function_block *blk, struct tcp_function_set *fs);
 void tcp_switch_back_to_default(struct tcpcb *tp);
 struct tcp_function_block *
 find_and_ref_tcp_fb(struct tcp_function_block *fs);
@@ -1052,6 +1052,7 @@ extern uint32_t tcp_ack_war_cnt;
 
 uint32_t tcp_maxmtu(struct in_conninfo *, struct tcp_ifcap *);
 uint32_t tcp_maxmtu6(struct in_conninfo *, struct tcp_ifcap *);
+void	 tcp6_use_min_mtu(struct tcpcb *);
 u_int	 tcp_maxseg(const struct tcpcb *);
 u_int	 tcp_fixed_maxseg(const struct tcpcb *);
 void	 tcp_mss_update(struct tcpcb *, int, int, struct hc_metrics_lite *,

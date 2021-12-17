@@ -1002,7 +1002,7 @@ pf_refragment6(struct ifnet *ifp, struct mbuf **m0, struct m_tag *mtag)
 		DPFPRINTF(("refragment error %d\n", error));
 		action = PF_DROP;
 	}
-	for (t = m; m; m = t) {
+	for (; m; m = t) {
 		t = m->m_nextpkt;
 		m->m_nextpkt = NULL;
 		m->m_flags |= M_SKIP_FIREWALL;
@@ -1031,7 +1031,6 @@ pf_normalize_ip(struct mbuf **m0, int dir, struct pfi_kkif *kif, u_short *reason
 	u_int16_t		 fragoff = (ntohs(h->ip_off) & IP_OFFMASK) << 3;
 	u_int16_t		 max;
 	int			 ip_len;
-	int			 ip_off;
 	int			 tag = -1;
 	int			 verdict;
 
@@ -1104,7 +1103,6 @@ pf_normalize_ip(struct mbuf **m0, int dir, struct pfi_kkif *kif, u_short *reason
 	}
 
 	ip_len = ntohs(h->ip_len) - hlen;
-	ip_off = (ntohs(h->ip_off) & IP_OFFMASK) << 3;
 
 	/* All fragments are 8 byte aligned */
 	if (mff && (ip_len & 0x7)) {

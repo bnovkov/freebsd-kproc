@@ -647,6 +647,11 @@ nfs_open(struct vop_open_args *ap)
 	NFSLOCKNODE(np);
 	if (np->n_flag & NMODIFIED) {
 		NFSUNLOCKNODE(np);
+		if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+			NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+			if (VN_IS_DOOMED(vp))
+				return (EBADF);
+		}
 		error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
 		if (error == EINTR || error == EIO) {
 			if (NFS_ISV4(vp))
@@ -683,6 +688,11 @@ nfs_open(struct vop_open_args *ap)
 			if (vp->v_type == VDIR)
 				np->n_direofoffset = 0;
 			NFSUNLOCKNODE(np);
+			if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+				NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+				if (VN_IS_DOOMED(vp))
+					return (EBADF);
+			}
 			error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
 			if (error == EINTR || error == EIO) {
 				if (NFS_ISV4(vp))
@@ -703,6 +713,11 @@ nfs_open(struct vop_open_args *ap)
 	    (vp->v_type == VREG)) {
 		if (np->n_directio_opens == 0) {
 			NFSUNLOCKNODE(np);
+			if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+				NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+				if (VN_IS_DOOMED(vp))
+					return (EBADF);
+			}
 			error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
 			if (error) {
 				if (NFS_ISV4(vp))
@@ -748,6 +763,11 @@ nfs_open(struct vop_open_args *ap)
 	if (vp->v_writecount <= -1) {
 		if ((obj = vp->v_object) != NULL &&
 		    vm_object_mightbedirty(obj)) {
+			if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+				NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+				if (VN_IS_DOOMED(vp))
+					return (EBADF);
+			}
 			VM_OBJECT_WLOCK(obj);
 			vm_object_page_clean(obj, 0, 0, OBJPC_SYNC);
 			VM_OBJECT_WUNLOCK(obj);
@@ -831,6 +851,11 @@ nfs_close(struct vop_close_args *ap)
 	     * mmap'ed writes or via write().
 	     */
 	    if (nfs_clean_pages_on_close && vp->v_object) {
+		if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+			NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+			if (VN_IS_DOOMED(vp) && ap->a_fflag != FNONBLOCK)
+				return (EBADF);
+		}
 		VM_OBJECT_WLOCK(vp->v_object);
 		vm_object_page_clean(vp->v_object, 0, 0, 0);
 		VM_OBJECT_WUNLOCK(vp->v_object);
@@ -855,11 +880,22 @@ nfs_close(struct vop_close_args *ap)
 		     * traditional vnode locking implemented for Vnode Ops.
 		     */
 		    int cm = newnfs_commit_on_close ? 1 : 0;
+		    if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+			    NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+			    if (VN_IS_DOOMED(vp) && ap->a_fflag != FNONBLOCK)
+				    return (EBADF);
+		    }
 		    error = ncl_flush(vp, MNT_WAIT, ap->a_td, cm, 0);
 		    /* np->n_flag &= ~NMODIFIED; */
 		} else if (NFS_ISV4(vp)) { 
 			if (nfscl_mustflush(vp) != 0) {
 				int cm = newnfs_commit_on_close ? 1 : 0;
+				if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+					NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+					if (VN_IS_DOOMED(vp) && ap->a_fflag !=
+					    FNONBLOCK)
+						return (EBADF);
+				}
 				error = ncl_flush(vp, MNT_WAIT, ap->a_td,
 				    cm, 0);
 				/*
@@ -869,6 +905,12 @@ nfs_close(struct vop_close_args *ap)
 				 */
 			}
 		} else {
+			if (VOP_ISLOCKED(vp) != LK_EXCLUSIVE) {
+				NFSVOPLOCK(vp, LK_UPGRADE | LK_RETRY);
+				if (VN_IS_DOOMED(vp) && ap->a_fflag !=
+				    FNONBLOCK)
+					return (EBADF);
+			}
 			error = ncl_vinvalbuf(vp, V_SAVE, ap->a_td, 1);
 		}
 		NFSLOCKNODE(np);
@@ -1014,6 +1056,7 @@ nfs_setattr(struct vop_setattr_args *ap)
 	struct vattr *vap = ap->a_vap;
 	int error = 0;
 	u_quad_t tsize;
+	struct timespec ts;
 
 #ifndef nolint
 	tsize = (u_quad_t)0;
@@ -1108,11 +1151,18 @@ nfs_setattr(struct vop_setattr_args *ap)
 			NFSUNLOCKNODE(np);
 	}
 	error = nfs_setattrrpc(vp, vap, ap->a_cred, td);
-	if (error && vap->va_size != VNOVAL) {
-		NFSLOCKNODE(np);
-		np->n_size = np->n_vattr.na_size = tsize;
-		vnode_pager_setsize(vp, tsize);
-		NFSUNLOCKNODE(np);
+	if (vap->va_size != VNOVAL) {
+		if (error == 0) {
+			nanouptime(&ts);
+			NFSLOCKNODE(np);
+			np->n_localmodtime = ts;
+			NFSUNLOCKNODE(np);
+		} else {
+			NFSLOCKNODE(np);
+			np->n_size = np->n_vattr.na_size = tsize;
+			vnode_pager_setsize(vp, tsize);
+			NFSUNLOCKNODE(np);
+		}
 	}
 	return (error);
 }
@@ -1165,11 +1215,11 @@ nfs_lookup(struct vop_lookup_args *ap)
 	struct nfsmount *nmp;
 	struct nfsnode *np, *newnp;
 	int error = 0, attrflag, dattrflag, ltype, ncticks;
-	struct thread *td = cnp->cn_thread;
+	struct thread *td = curthread;
 	struct nfsfh *nfhp;
 	struct nfsvattr dnfsva, nfsva;
 	struct vattr vattr;
-	struct timespec nctime;
+	struct timespec nctime, ts;
 	uint32_t openmode;
 
 	*vpp = NULLVP;
@@ -1272,13 +1322,18 @@ nfs_lookup(struct vop_lookup_args *ap)
 		cache_purge_negative(dvp);
 	}
 
+	openmode = 0;
+#if 0
+	/*
+	 * The use of LookupOpen breaks some builds.  It is disabled
+	 * until that is fixed.
+	 */
 	/*
 	 * If this an NFSv4.1/4.2 mount using the "oneopenown" mount
 	 * option, it is possible to do the Open operation in the same
 	 * compound as Lookup, so long as delegations are not being
 	 * issued.  This saves doing a separate RPC for Open.
 	 */
-	openmode = 0;
 	NFSLOCKMNT(nmp);
 	if (NFSHASNFSV4N(nmp) && NFSHASONEOPENOWN(nmp) &&
 	    (nmp->nm_privflag & NFSMNTP_DELEGISSUED) == 0 &&
@@ -1290,9 +1345,11 @@ nfs_lookup(struct vop_lookup_args *ap)
 			openmode |= NFSV4OPEN_ACCESSWRITE;
 	}
 	NFSUNLOCKMNT(nmp);
+#endif
 
 	newvp = NULLVP;
 	NFSINCRGLOBAL(nfsstatsv1.lookupcache_misses);
+	nanouptime(&ts);
 	error = nfsrpc_lookup(dvp, cnp->cn_nameptr, cnp->cn_namelen,
 	    cnp->cn_cred, td, &dnfsva, &nfsva, &nfhp, &attrflag, &dattrflag,
 	    NULL, openmode);
@@ -1359,6 +1416,22 @@ nfs_lookup(struct vop_lookup_args *ap)
 		if (error)
 			return (error);
 		newvp = NFSTOV(np);
+		/*
+		 * If n_localmodtime >= time before RPC, then
+		 * a file modification operation, such as
+		 * VOP_SETATTR() of size, has occurred while
+		 * the Lookup RPC and acquisition of the vnode
+		 * happened.  As such, the attributes might
+		 * be stale, with possibly an incorrect size.
+		 */
+		NFSLOCKNODE(np);
+		if (timespecisset(&np->n_localmodtime) &&
+		    timespeccmp(&np->n_localmodtime, &ts, >=)) {
+			NFSCL_DEBUG(4, "nfs_lookup: rename localmod "
+			    "stale attributes\n");
+			attrflag = 0;
+		}
+		NFSUNLOCKNODE(np);
 		if (attrflag)
 			(void) nfscl_loadattrcache(&newvp, &nfsva, NULL, NULL,
 			    0, 1);
@@ -1418,6 +1491,22 @@ nfs_lookup(struct vop_lookup_args *ap)
 		if (error)
 			return (error);
 		newvp = NFSTOV(np);
+		/*
+		 * If n_localmodtime >= time before RPC, then
+		 * a file modification operation, such as
+		 * VOP_SETATTR() of size, has occurred while
+		 * the Lookup RPC and acquisition of the vnode
+		 * happened.  As such, the attributes might
+		 * be stale, with possibly an incorrect size.
+		 */
+		NFSLOCKNODE(np);
+		if (timespecisset(&np->n_localmodtime) &&
+		    timespeccmp(&np->n_localmodtime, &ts, >=)) {
+			NFSCL_DEBUG(4, "nfs_lookup: localmod "
+			    "stale attributes\n");
+			attrflag = 0;
+		}
+		NFSUNLOCKNODE(np);
 		if (attrflag)
 			(void) nfscl_loadattrcache(&newvp, &nfsva, NULL, NULL,
 			    0, 1);
@@ -1596,17 +1685,17 @@ nfs_mknodrpc(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp,
 	if ((error = VOP_GETATTR(dvp, &vattr, cnp->cn_cred)))
 		return (error);
 	error = nfsrpc_mknod(dvp, cnp->cn_nameptr, cnp->cn_namelen, vap,
-	    rdev, vap->va_type, cnp->cn_cred, cnp->cn_thread, &dnfsva,
+	    rdev, vap->va_type, cnp->cn_cred, curthread, &dnfsva,
 	    &nfsva, &nfhp, &attrflag, &dattrflag, NULL);
 	if (!error) {
 		if (!nfhp)
 			(void) nfsrpc_lookup(dvp, cnp->cn_nameptr,
-			    cnp->cn_namelen, cnp->cn_cred, cnp->cn_thread,
+			    cnp->cn_namelen, cnp->cn_cred, curthread,
 			    &dnfsva, &nfsva, &nfhp, &attrflag, &dattrflag,
 			    NULL, 0);
 		if (nfhp)
 			error = nfscl_nget(dvp->v_mount, dvp, nfhp, cnp,
-			    cnp->cn_thread, &np, NULL, LK_EXCLUSIVE);
+			    curthread, &np, NULL, LK_EXCLUSIVE);
 	}
 	if (dattrflag)
 		(void) nfscl_loadattrcache(&dvp, &dnfsva, NULL, NULL, 0, 1);
@@ -1622,7 +1711,7 @@ nfs_mknodrpc(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp,
 	if (!error) {
 		*vpp = newvp;
 	} else if (NFS_ISV4(dvp)) {
-		error = nfscl_maperr(cnp->cn_thread, error, vap->va_uid,
+		error = nfscl_maperr(curthread, error, vap->va_uid,
 		    vap->va_gid);
 	}
 	dnp = VTONFS(dvp);
@@ -1712,17 +1801,17 @@ again:
 
 	cverf = nfs_get_cverf();
 	error = nfsrpc_create(dvp, cnp->cn_nameptr, cnp->cn_namelen,
-	    vap, cverf, fmode, cnp->cn_cred, cnp->cn_thread, &dnfsva, &nfsva,
+	    vap, cverf, fmode, cnp->cn_cred, curthread, &dnfsva, &nfsva,
 	    &nfhp, &attrflag, &dattrflag, NULL);
 	if (!error) {
 		if (nfhp == NULL)
 			(void) nfsrpc_lookup(dvp, cnp->cn_nameptr,
-			    cnp->cn_namelen, cnp->cn_cred, cnp->cn_thread,
+			    cnp->cn_namelen, cnp->cn_cred, curthread,
 			    &dnfsva, &nfsva, &nfhp, &attrflag, &dattrflag,
 			    NULL, 0);
 		if (nfhp != NULL)
 			error = nfscl_nget(dvp->v_mount, dvp, nfhp, cnp,
-			    cnp->cn_thread, &np, NULL, LK_EXCLUSIVE);
+			    curthread, &np, NULL, LK_EXCLUSIVE);
 	}
 	if (dattrflag)
 		(void) nfscl_loadattrcache(&dvp, &dnfsva, NULL, NULL, 0, 1);
@@ -1730,7 +1819,7 @@ again:
 		newvp = NFSTOV(np);
 		if (attrflag == 0)
 			error = nfsrpc_getattr(newvp, cnp->cn_cred,
-			    cnp->cn_thread, &nfsva, NULL);
+			    curthread, &nfsva, NULL);
 		if (error == 0)
 			error = nfscl_loadattrcache(&newvp, &nfsva, NULL, NULL,
 			    0, 1);
@@ -1748,14 +1837,14 @@ again:
 	} else if (NFS_ISV34(dvp) && (fmode & O_EXCL)) {
 		if (nfscl_checksattr(vap, &nfsva)) {
 			error = nfsrpc_setattr(newvp, vap, NULL, cnp->cn_cred,
-			    cnp->cn_thread, &nfsva, &attrflag, NULL);
+			    curthread, &nfsva, &attrflag, NULL);
 			if (error && (vap->va_uid != (uid_t)VNOVAL ||
 			    vap->va_gid != (gid_t)VNOVAL)) {
 				/* try again without setting uid/gid */
 				vap->va_uid = (uid_t)VNOVAL;
 				vap->va_gid = (uid_t)VNOVAL;
 				error = nfsrpc_setattr(newvp, vap, NULL, 
-				    cnp->cn_cred, cnp->cn_thread, &nfsva,
+				    cnp->cn_cred, curthread, &nfsva,
 				    &attrflag, NULL);
 			}
 			if (attrflag)
@@ -1776,7 +1865,7 @@ again:
 		}
 		*ap->a_vpp = newvp;
 	} else if (NFS_ISV4(dvp)) {
-		error = nfscl_maperr(cnp->cn_thread, error, vap->va_uid,
+		error = nfscl_maperr(curthread, error, vap->va_uid,
 		    vap->va_gid);
 	}
 	NFSLOCKNODE(dnp);
@@ -1829,11 +1918,11 @@ nfs_remove(struct vop_remove_args *ap)
 		 * throw away biocache buffers, mainly to avoid
 		 * unnecessary delayed writes later.
 		 */
-		error = ncl_vinvalbuf(vp, 0, cnp->cn_thread, 1);
+		error = ncl_vinvalbuf(vp, 0, curthread, 1);
 		if (error != EINTR && error != EIO)
 			/* Do the rpc */
 			error = nfs_removerpc(dvp, vp, cnp->cn_nameptr,
-			    cnp->cn_namelen, cnp->cn_cred, cnp->cn_thread);
+			    cnp->cn_namelen, cnp->cn_cred, curthread);
 		/*
 		 * Kludge City: If the first reply to the remove rpc is lost..
 		 *   the reply to the retransmitted request will be ENOENT
@@ -1953,10 +2042,10 @@ nfs_rename(struct vop_rename_args *ap)
 	 * that was written back to our cache earlier. Not checking for
 	 * this condition can result in potential (silent) data loss.
 	 */
-	error = VOP_FSYNC(fvp, MNT_WAIT, fcnp->cn_thread);
+	error = VOP_FSYNC(fvp, MNT_WAIT, curthread);
 	NFSVOPUNLOCK(fvp);
 	if (!error && tvp)
-		error = VOP_FSYNC(tvp, MNT_WAIT, tcnp->cn_thread);
+		error = VOP_FSYNC(tvp, MNT_WAIT, curthread);
 	if (error)
 		goto out;
 
@@ -1973,7 +2062,7 @@ nfs_rename(struct vop_rename_args *ap)
 
 	error = nfs_renamerpc(fdvp, fvp, fcnp->cn_nameptr, fcnp->cn_namelen,
 	    tdvp, tvp, tcnp->cn_nameptr, tcnp->cn_namelen, tcnp->cn_cred,
-	    tcnp->cn_thread);
+	    curthread);
 
 	if (error == 0 && NFS_ISV4(tdvp)) {
 		/*
@@ -2050,7 +2139,7 @@ nfs_renameit(struct vnode *sdvp, struct vnode *svp, struct componentname *scnp,
 
 	return (nfs_renamerpc(sdvp, svp, scnp->cn_nameptr, scnp->cn_namelen,
 	    sdvp, NULL, sp->s_name, sp->s_namlen, scnp->cn_cred,
-	    scnp->cn_thread));
+	    curthread));
 }
 
 /*
@@ -2112,10 +2201,10 @@ nfs_link(struct vop_link_args *ap)
 	 * doesn't get "out of sync" with the server.
 	 * XXX There should be a better way!
 	 */
-	VOP_FSYNC(vp, MNT_WAIT, cnp->cn_thread);
+	VOP_FSYNC(vp, MNT_WAIT, curthread);
 
 	error = nfsrpc_link(tdvp, vp, cnp->cn_nameptr, cnp->cn_namelen,
-	    cnp->cn_cred, cnp->cn_thread, &dnfsva, &nfsva, &attrflag,
+	    cnp->cn_cred, curthread, &dnfsva, &nfsva, &attrflag,
 	    &dattrflag, NULL);
 	tdnp = VTONFS(tdvp);
 	NFSLOCKNODE(tdnp);
@@ -2152,7 +2241,7 @@ nfs_link(struct vop_link_args *ap)
 			    "the directory as the new link\n");
 	}
 	if (error && NFS_ISV4(vp))
-		error = nfscl_maperr(cnp->cn_thread, error, (uid_t)0,
+		error = nfscl_maperr(curthread, error, (uid_t)0,
 		    (gid_t)0);
 	return (error);
 }
@@ -2174,10 +2263,10 @@ nfs_symlink(struct vop_symlink_args *ap)
 
 	vap->va_type = VLNK;
 	error = nfsrpc_symlink(dvp, cnp->cn_nameptr, cnp->cn_namelen,
-	    ap->a_target, vap, cnp->cn_cred, cnp->cn_thread, &dnfsva,
+	    ap->a_target, vap, cnp->cn_cred, curthread, &dnfsva,
 	    &nfsva, &nfhp, &attrflag, &dattrflag, NULL);
 	if (nfhp) {
-		ret = nfscl_nget(dvp->v_mount, dvp, nfhp, cnp, cnp->cn_thread,
+		ret = nfscl_nget(dvp->v_mount, dvp, nfhp, cnp, curthread,
 		    &np, NULL, LK_EXCLUSIVE);
 		if (!ret)
 			newvp = NFSTOV(np);
@@ -2195,7 +2284,7 @@ nfs_symlink(struct vop_symlink_args *ap)
 		 * have to do a lookup in order to obtain a newvp to return.
 		 */
 		error = nfs_lookitup(dvp, cnp->cn_nameptr, cnp->cn_namelen,
-		    cnp->cn_cred, cnp->cn_thread, &np);
+		    cnp->cn_cred, curthread, &np);
 		if (!error)
 			newvp = NFSTOV(np);
 	}
@@ -2203,7 +2292,7 @@ nfs_symlink(struct vop_symlink_args *ap)
 		if (newvp)
 			vput(newvp);
 		if (NFS_ISV4(dvp))
-			error = nfscl_maperr(cnp->cn_thread, error,
+			error = nfscl_maperr(curthread, error,
 			    vap->va_uid, vap->va_gid);
 	} else {
 		*ap->a_vpp = newvp;
@@ -2258,7 +2347,7 @@ nfs_mkdir(struct vop_mkdir_args *ap)
 		return (error);
 	vap->va_type = VDIR;
 	error = nfsrpc_mkdir(dvp, cnp->cn_nameptr, cnp->cn_namelen,
-	    vap, cnp->cn_cred, cnp->cn_thread, &dnfsva, &nfsva, &nfhp,
+	    vap, cnp->cn_cred, curthread, &dnfsva, &nfsva, &nfhp,
 	    &attrflag, &dattrflag, NULL);
 	dnp = VTONFS(dvp);
 	NFSLOCKNODE(dnp);
@@ -2272,7 +2361,7 @@ nfs_mkdir(struct vop_mkdir_args *ap)
 		KDTRACE_NFS_ATTRCACHE_FLUSH_DONE(dvp);
 	}
 	if (nfhp) {
-		ret = nfscl_nget(dvp->v_mount, dvp, nfhp, cnp, cnp->cn_thread,
+		ret = nfscl_nget(dvp->v_mount, dvp, nfhp, cnp, curthread,
 		    &np, NULL, LK_EXCLUSIVE);
 		if (!ret) {
 			newvp = NFSTOV(np);
@@ -2284,7 +2373,7 @@ nfs_mkdir(struct vop_mkdir_args *ap)
 	}
 	if (!error && newvp == NULL) {
 		error = nfs_lookitup(dvp, cnp->cn_nameptr, cnp->cn_namelen,
-		    cnp->cn_cred, cnp->cn_thread, &np);
+		    cnp->cn_cred, curthread, &np);
 		if (!error) {
 			newvp = NFSTOV(np);
 			if (newvp->v_type != VDIR)
@@ -2295,7 +2384,7 @@ nfs_mkdir(struct vop_mkdir_args *ap)
 		if (newvp)
 			vput(newvp);
 		if (NFS_ISV4(dvp))
-			error = nfscl_maperr(cnp->cn_thread, error,
+			error = nfscl_maperr(curthread, error,
 			    vap->va_uid, vap->va_gid);
 	} else {
 		/*
@@ -2336,7 +2425,7 @@ nfs_rmdir(struct vop_rmdir_args *ap)
 	if (dvp == vp)
 		return (EINVAL);
 	error = nfsrpc_rmdir(dvp, cnp->cn_nameptr, cnp->cn_namelen,
-	    cnp->cn_cred, cnp->cn_thread, &dnfsva, &dattrflag, NULL);
+	    cnp->cn_cred, curthread, &dnfsva, &dattrflag, NULL);
 	dnp = VTONFS(dvp);
 	NFSLOCKNODE(dnp);
 	dnp->n_flag |= NMODIFIED;
@@ -2352,7 +2441,7 @@ nfs_rmdir(struct vop_rmdir_args *ap)
 	cache_purge(dvp);
 	cache_purge(vp);
 	if (error && NFS_ISV4(dvp))
-		error = nfscl_maperr(cnp->cn_thread, error, (uid_t)0,
+		error = nfscl_maperr(curthread, error, (uid_t)0,
 		    (gid_t)0);
 	/*
 	 * Kludge: Map ENOENT => 0 assuming that you have a reply to a retry.
@@ -2591,14 +2680,14 @@ nfs_sillyrename(struct vnode *dvp, struct vnode *vp, struct componentname *cnp)
 	 * The name is now changed to .nfs.<ticks>.<pid>.4, where ticks is 
 	 * CPU ticks since boot.
 	 */
-	pid = cnp->cn_thread->td_proc->p_pid;
+	pid = curthread->td_proc->p_pid;
 	lticks = (unsigned int)ticks;
 	for ( ; ; ) {
 		sp->s_namlen = sprintf(sp->s_name, 
 				       ".nfs.%08x.%04x4.4", lticks, 
 				       pid);
 		if (nfs_lookitup(dvp, sp->s_name, sp->s_namlen, sp->s_cred,
-				 cnp->cn_thread, NULL))
+				 curthread, NULL))
 			break;
 		lticks++;
 	}
@@ -2606,7 +2695,7 @@ nfs_sillyrename(struct vnode *dvp, struct vnode *vp, struct componentname *cnp)
 	if (error)
 		goto bad;
 	error = nfs_lookitup(dvp, sp->s_name, sp->s_namlen, sp->s_cred,
-		cnp->cn_thread, &np);
+		curthread, &np);
 	np->n_sillyrename = sp;
 	return (0);
 bad:
@@ -2635,7 +2724,9 @@ nfs_lookitup(struct vnode *dvp, char *name, int len, struct ucred *cred,
 	struct componentname cn;
 	int error = 0, attrflag, dattrflag;
 	u_int hash;
+	struct timespec ts;
 
+	nanouptime(&ts);
 	error = nfsrpc_lookup(dvp, name, len, cred, td, &dnfsva, &nfsva,
 	    &nfhp, &attrflag, &dattrflag, NULL, 0);
 	if (dattrflag)
@@ -2696,6 +2787,22 @@ printf("replace=%s\n",nnn);
 		    if (error)
 			return (error);
 		    newvp = NFSTOV(np);
+		    /*
+		     * If n_localmodtime >= time before RPC, then
+		     * a file modification operation, such as
+		     * VOP_SETATTR() of size, has occurred while
+		     * the Lookup RPC and acquisition of the vnode
+		     * happened.  As such, the attributes might
+		     * be stale, with possibly an incorrect size.
+		     */
+		    NFSLOCKNODE(np);
+		    if (timespecisset(&np->n_localmodtime) &&
+			timespeccmp(&np->n_localmodtime, &ts, >=)) {
+			NFSCL_DEBUG(4, "nfs_lookitup: localmod "
+			    "stale attributes\n");
+			attrflag = 0;
+		    }
+		    NFSUNLOCKNODE(np);
 		}
 		if (!attrflag && *npp == NULL) {
 			if (newvp == dvp)
@@ -2855,6 +2962,7 @@ ncl_flush(struct vnode *vp, int waitfor, struct thread *td,
 #endif
 	struct buf *bvec_on_stack[NFS_COMMITBVECSIZ];
 	u_int bvecsize = 0, bveccount;
+	struct timespec ts;
 
 	if (called_from_renewthread != 0)
 		slptimeo = hz;
@@ -3007,7 +3115,7 @@ again:
 		for (i = 0; i < bvecpos; i++) {
 			bp = bvec[i];
 			bp->b_flags &= ~(B_NEEDCOMMIT | B_CLUSTEROK);
-			if (retv) {
+			if (!NFSCL_FORCEDISM(vp->v_mount) && retv) {
 				/*
 				 * Error, leave B_DELWRI intact
 				 */
@@ -3174,6 +3282,12 @@ done:
 		}
 		vn_printf(vp, "ncl_flush failed");
 		error = called_from_renewthread != 0 ? EIO : EBUSY;
+	}
+	if (error == 0) {
+		nanouptime(&ts);
+		NFSLOCKNODE(np);
+		np->n_localmodtime = ts;
+		NFSUNLOCKNODE(np);
 	}
 	return (error);
 }
@@ -3643,45 +3757,54 @@ nfs_allocate(struct vop_allocate_args *ap)
 	struct thread *td = curthread;
 	struct nfsvattr nfsva;
 	struct nfsmount *nmp;
+	struct nfsnode *np;
 	off_t alen;
 	int attrflag, error, ret;
+	struct timespec ts;
+	struct uio io;
 
 	attrflag = 0;
 	nmp = VFSTONFS(vp->v_mount);
+	np = VTONFS(vp);
 	mtx_lock(&nmp->nm_mtx);
 	if (NFSHASNFSV4(nmp) && nmp->nm_minorvers >= NFSV42_MINORVERSION &&
 	    (nmp->nm_privflag & NFSMNTP_NOALLOCATE) == 0) {
 		mtx_unlock(&nmp->nm_mtx);
+		alen = *ap->a_len;
+		if ((uint64_t)alen > nfs_maxalloclen)
+			alen = nfs_maxalloclen;
+
+		/* Check the file size limit. */
+		io.uio_offset = *ap->a_offset;
+		io.uio_resid = alen;
+		error = vn_rlimit_fsize(vp, &io, td);
+
 		/*
 		 * Flush first to ensure that the allocate adds to the
 		 * file's allocation on the server.
 		 */
-		error = ncl_flush(vp, MNT_WAIT, td, 1, 0);
-		if (error == 0) {
-			alen = *ap->a_len;
-			if ((uint64_t)alen > nfs_maxalloclen)
-				alen = nfs_maxalloclen;
+		if (error == 0)
+			error = ncl_flush(vp, MNT_WAIT, td, 1, 0);
+		if (error == 0)
 			error = nfsrpc_allocate(vp, *ap->a_offset, alen,
-			    &nfsva, &attrflag, td->td_ucred, td, NULL);
-		}
+			    &nfsva, &attrflag, ap->a_cred, td, NULL);
 		if (error == 0) {
 			*ap->a_offset += alen;
 			*ap->a_len -= alen;
+			nanouptime(&ts);
+			NFSLOCKNODE(np);
+			np->n_localmodtime = ts;
+			NFSUNLOCKNODE(np);
 		} else if (error == NFSERR_NOTSUPP) {
 			mtx_lock(&nmp->nm_mtx);
 			nmp->nm_privflag |= NFSMNTP_NOALLOCATE;
 			mtx_unlock(&nmp->nm_mtx);
+			error = EINVAL;
 		}
 	} else {
 		mtx_unlock(&nmp->nm_mtx);
-		error = EIO;
+		error = EINVAL;
 	}
-	/*
-	 * If the NFS server cannot perform the Allocate operation, just call
-	 * vop_stdallocate() to perform it.
-	 */
-	if (error != 0)
-		error = vop_stdallocate(ap);
 	if (attrflag != 0) {
 		ret = nfscl_loadattrcache(&vp, &nfsva, NULL, NULL, 0, 1);
 		if (error == 0 && ret != 0)
@@ -3706,6 +3829,7 @@ nfs_deallocate(struct vop_deallocate_args *ap)
 	off_t tlen, mlen;
 	int attrflag, error, ret;
 	bool clipped;
+	struct timespec ts;
 
 	error = 0;
 	attrflag = 0;
@@ -3748,6 +3872,10 @@ nfs_deallocate(struct vop_deallocate_args *ap)
 		if (error == 0) {
 			NFSCL_DEBUG(4, "dealloc: attrflag=%d na_size=%ju\n",
 			    attrflag, (uintmax_t)nfsva.na_size);
+			nanouptime(&ts);
+			NFSLOCKNODE(np);
+			np->n_localmodtime = ts;
+			NFSUNLOCKNODE(np);
 			if (attrflag != 0) {
 				if ((uint64_t)*ap->a_offset < nfsva.na_size)
 					*ap->a_offset += omin((off_t)

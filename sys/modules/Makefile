@@ -38,7 +38,6 @@ SUBDIR=	\
 	${_amdsbwd} \
 	${_amdsmn} \
 	${_amdtemp} \
-	amr \
 	${_aout} \
 	${_arcmsr} \
 	${_allwinner} \
@@ -110,8 +109,6 @@ SUBDIR=	\
 	${_em} \
 	${_ena} \
 	${_enetc} \
-	${_enetc_mdio} \
-	esp \
 	${_et} \
 	evdev \
 	${_exca} \
@@ -124,6 +121,7 @@ SUBDIR=	\
 	filemon \
 	firewire \
 	firmware \
+	flash \
 	${_ftwd} \
 	fusefs \
 	${_fxp} \
@@ -166,7 +164,6 @@ SUBDIR=	\
 	if_vxlan \
 	iflib \
 	${_igc} \
-	${_iir} \
 	imgact_binmisc \
 	${_intelspi} \
 	${_io} \
@@ -225,6 +222,7 @@ SUBDIR=	\
 	mac_ntpd \
 	mac_partition \
 	mac_portacl \
+	mac_priority \
 	mac_seeotheruids \
 	mac_stub \
 	mac_test \
@@ -244,7 +242,6 @@ SUBDIR=	\
 	${_mlx5} \
 	${_mlx5en} \
 	${_mlx5ib} \
-	${_mly} \
 	mmc \
 	mmcsd \
 	${_mpr} \
@@ -353,7 +350,6 @@ SUBDIR=	\
 	${_speaker} \
 	spi \
 	${_splash} \
-	${_sppp} \
 	ste \
 	stge \
 	${_sume} \
@@ -367,7 +363,6 @@ SUBDIR=	\
 	tmpfs \
 	${_toecore} \
 	${_tpm} \
-	${_twa} \
 	twe \
 	tws \
 	uart \
@@ -488,7 +483,6 @@ _dpdk_lpm6=	dpdk_lpm6
 .if ${MK_ISCSI} != "no" || defined(ALL_MODULES)
 SUBDIR+=	cfiscsi
 SUBDIR+=	iscsi
-SUBDIR+=	iscsi_initiator
 .endif
 
 .if !empty(OPT_FDT)
@@ -617,7 +611,6 @@ _armv8crypto=	armv8crypto
 _dwwdt=		dwwdt
 _em=		em
 _enetc=		enetc
-_enetc_mdio=	enetc_mdio
 _felix=		felix
 _rockchip=	rockchip
 .endif
@@ -630,7 +623,9 @@ _neta=		neta
 
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64"
 _agp=		agp
+.if ${MACHINE_CPUARCH} == "i386" || !empty(COMPAT_FREEBSD32_ENABLED)
 _aout=		aout
+.endif
 _bios=		bios
 .if ${MK_SOURCELESS_UCODE} != "no"
 _bxe=		bxe
@@ -665,7 +660,6 @@ _rdma=		rdma
 _safe=		safe
 _speaker=	speaker
 _splash=	splash
-_sppp=		sppp
 _p2sb=		p2sb
 _wbwd=		wbwd
 
@@ -701,7 +695,6 @@ _hptrr=		hptrr
 _hyperv=	hyperv
 _ichwd=		ichwd
 _ida=		ida
-_iir=		iir
 _intelspi=	intelspi
 _ips=		ips
 _isci=		isci
@@ -715,7 +708,6 @@ _iwifw=		iwifw
 _iwmfw=		iwmfw
 _iwnfw=		iwnfw
 .endif
-_mly=		mly
 _nfe=		nfe
 _nvd=		nvd
 _nvme=		nvme
@@ -730,7 +722,6 @@ _s3=		s3
 _sdhci_acpi=	sdhci_acpi
 _superio=	superio
 _tpm=		tpm
-_twa=		twa
 _vesa=		vesa
 _viawd=		viawd
 _vmd=		vmd

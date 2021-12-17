@@ -112,8 +112,9 @@ command_load(int argc, char *argv[])
 {
 	struct preloaded_file *fp;
 	char	*typestr;
-	char	*prefix;
-	char	*skip;
+#ifdef LOADER_VERIEXEC
+	char	*prefix, *skip;
+#endif
 	int		dflag, dofile, dokld, ch, error;
 
 	dflag = dokld = dofile = 0;
@@ -124,7 +125,10 @@ command_load(int argc, char *argv[])
 		command_errmsg = "no filename specified";
 		return (CMD_CRIT);
 	}
-	prefix = skip = NULL;
+#ifdef LOADER_VERIEXEC
+	prefix = NULL;
+	skip = NULL;
+#endif
 	while ((ch = getopt(argc, argv, "dkp:s:t:")) != -1) {
 		switch(ch) {
 		case 'd':
@@ -133,12 +137,14 @@ command_load(int argc, char *argv[])
 		case 'k':
 			dokld = 1;
 			break;
+#ifdef LOADER_VERIEXEC
 		case 'p':
 			prefix = optarg;
 			break;
 		case 's':
 			skip = optarg;
 			break;
+#endif
 		case 't':
 			typestr = optarg;
 			dofile = 1;
@@ -271,8 +277,6 @@ unload(void)
 	}
 	loadaddr = 0;
 	unsetenv("kernelname");
-	/* Reset tg_kernel_supported to allow next load to check it again. */
-	gfx_state.tg_kernel_supported = false;
 }
 
 COMMAND_SET(unload, "unload", "unload all modules", command_unload);
@@ -381,14 +385,19 @@ command_pnpmatch(int argc, char *argv[])
 			return(CMD_OK);
 		}
 	}
-	argv += (optind - 1);
-	argc -= (optind - 1);
+	argv += optind;
+	argc -= optind;
 
-	module = mod_searchmodule_pnpinfo(argv[1], argv[2]);
+	if (argc != 2) {
+		command_errmsg = "Usage: pnpmatch <busname> compat=<compatdata>";
+		return (CMD_CRIT);
+	}
+
+	module = mod_searchmodule_pnpinfo(argv[0], argv[1]);
 	if (module)
 		printf("Matched module: %s\n", module);
-	else if(argv[1])
-		printf("No module matches %s\n", argv[1]);
+	else
+		printf("No module matches %s on bus %s\n", argv[1], argv[0]);
 
 	return (CMD_OK);
 }
@@ -419,13 +428,15 @@ command_pnpload(int argc, char *argv[])
 			return(CMD_OK);
 		}
 	}
-	argv += (optind - 1);
-	argc -= (optind - 1);
+	argv += optind;
+	argc -= optind;
 
-	if (argc != 2)
+	if (argc != 2) {
+		command_errmsg = "Usage: pnpload <busname> compat=<compatdata>";
 		return (CMD_ERROR);
+	}
 
-	module = mod_searchmodule_pnpinfo(argv[1], argv[2]);
+	module = mod_searchmodule_pnpinfo(argv[0], argv[1]);
 
 	error = mod_load(module, NULL, 0, NULL);
 	if (error == EEXIST) {
@@ -439,7 +450,7 @@ command_pnpload(int argc, char *argv[])
 
 #if defined(LOADER_FDT_SUPPORT)
 static void
-pnpautoload_simplebus(void) {
+pnpautoload_fdt_bus(const char *busname) {
 	const char *pnpstring;
 	const char *compatstr;
 	char *pnpinfo = NULL;
@@ -457,7 +468,7 @@ pnpautoload_simplebus(void) {
 			pnplen += strlen(compatstr) + 1;
 			asprintf(&pnpinfo, "compat=%s", compatstr);
 
-			module = mod_searchmodule_pnpinfo("simplebus", pnpinfo);
+			module = mod_searchmodule_pnpinfo(busname, pnpinfo);
 			if (module) {
 				error = mod_loadkld(module, 0, NULL);
 				if (error)
@@ -473,12 +484,15 @@ pnpautoload_simplebus(void) {
 
 struct pnp_bus {
 	const char *name;
-	void (*load)(void);
+	void (*load)(const char *busname);
 };
 
 struct pnp_bus pnp_buses[] = {
 #if defined(LOADER_FDT_SUPPORT)
-	{"simplebus", pnpautoload_simplebus},
+	{"simplebus", pnpautoload_fdt_bus},
+	{"ofwbus", pnpautoload_fdt_bus},
+	{"iicbus", pnpautoload_fdt_bus},
+	{"spibus", pnpautoload_fdt_bus},
 #endif
 };
 
@@ -521,8 +535,8 @@ command_pnpautoload(int argc, char *argv[])
 			continue;
 		}
 		if (verbose)
-			printf("Autoloading modules for simplebus\n");
-		pnp_buses[i].load();
+			printf("Autoloading modules for %s\n", pnp_buses[i].name);
+		pnp_buses[i].load(pnp_buses[i].name);
 		match = 1;
 	}
 	if (match == 0)

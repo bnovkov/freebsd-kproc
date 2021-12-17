@@ -212,42 +212,26 @@ in6_delayed_cksum(struct mbuf *m, uint32_t plen, u_short offset)
 		*(u_short *)mtodo(m, offset) = csum;
 }
 
-static int
+static void
 ip6_output_delayed_csum(struct mbuf *m, struct ifnet *ifp, int csum_flags,
-    int plen, int optlen, bool frag)
+    int plen, int optlen)
 {
 
 	KASSERT((plen >= optlen), ("%s:%d: plen %d < optlen %d, m %p, ifp %p "
-	    "csum_flags %#x frag %d\n",
-	    __func__, __LINE__, plen, optlen, m, ifp, csum_flags, frag));
+	    "csum_flags %#x",
+	    __func__, __LINE__, plen, optlen, m, ifp, csum_flags));
 
-	if ((csum_flags & CSUM_DELAY_DATA_IPV6) ||
-#if defined(SCTP) || defined(SCTP_SUPPORT)
-	    (csum_flags & CSUM_SCTP_IPV6) ||
-#endif
-	    (!frag && (ifp->if_capenable & IFCAP_MEXTPG) == 0)) {
-		m = mb_unmapped_to_ext(m);
-		if (m == NULL) {
-			if (frag)
-				in6_ifstat_inc(ifp, ifs6_out_fragfail);
-			else
-				IP6STAT_INC(ip6s_odropped);
-			return (ENOBUFS);
-		}
-		if (csum_flags & CSUM_DELAY_DATA_IPV6) {
-			in6_delayed_cksum(m, plen - optlen,
-			    sizeof(struct ip6_hdr) + optlen);
-			m->m_pkthdr.csum_flags &= ~CSUM_DELAY_DATA_IPV6;
-		}
-#if defined(SCTP) || defined(SCTP_SUPPORT)
-		if (csum_flags & CSUM_SCTP_IPV6) {
-			sctp_delayed_cksum(m, sizeof(struct ip6_hdr) + optlen);
-			m->m_pkthdr.csum_flags &= ~CSUM_SCTP_IPV6;
-		}
-#endif
+	if (csum_flags & CSUM_DELAY_DATA_IPV6) {
+		in6_delayed_cksum(m, plen - optlen,
+		    sizeof(struct ip6_hdr) + optlen);
+		m->m_pkthdr.csum_flags &= ~CSUM_DELAY_DATA_IPV6;
 	}
-
-	return (0);
+#if defined(SCTP) || defined(SCTP_SUPPORT)
+	if (csum_flags & CSUM_SCTP_IPV6) {
+		sctp_delayed_cksum(m, sizeof(struct ip6_hdr) + optlen);
+		m->m_pkthdr.csum_flags &= ~CSUM_SCTP_IPV6;
+	}
+#endif
 }
 
 int
@@ -1104,6 +1088,16 @@ nonh6lookup:
 passout:
 	if (vlan_pcp > -1)
 		EVL_APPLY_PRI(m, vlan_pcp);
+
+	/* Ensure the packet data is mapped if the interface requires it. */
+	if ((ifp->if_capenable & IFCAP_MEXTPG) == 0) {
+		m = mb_unmapped_to_ext(m);
+		if (m == NULL) {
+			IP6STAT_INC(ip6s_odropped);
+			return (ENOBUFS);
+		}
+	}
+
 	/*
 	 * Send the packet to the outgoing interface.
 	 * If necessary, do IPv6 fragmentation before sending.
@@ -1136,9 +1130,7 @@ passout:
 	 * XXX-BZ  Need a framework to know when the NIC can handle it, even
 	 * with ext. hdrs.
 	 */
-	error = ip6_output_delayed_csum(m, ifp, sw_csum, plen, optlen, false);
-	if (error != 0)
-		goto bad;
+	ip6_output_delayed_csum(m, ifp, sw_csum, plen, optlen);
 	/* XXX-BZ m->m_pkthdr.csum_flags &= ~ifp->if_hwassist; */
 	tlen = m->m_pkthdr.len;
 
@@ -1217,10 +1209,8 @@ passout:
 		 * fragmented packets, then do it here.
 		 * XXX-BZ handle the hw offloading case.  Need flags.
 		 */
-		error = ip6_output_delayed_csum(m, ifp, m->m_pkthdr.csum_flags,
-		    plen, optlen, true);
-		if (error != 0)
-			goto bad;
+		ip6_output_delayed_csum(m, ifp, m->m_pkthdr.csum_flags, plen,
+		    optlen);
 
 		/*
 		 * Change the next header field of the last header in the
@@ -2829,8 +2819,8 @@ ip6_setpktopts(struct mbuf *control, struct ip6_pktopts *opt,
 		return (EINVAL);
 
 	/*
-	 * ip6_setpktopt can call ifnet_by_index(), so it's imperative that we are
-	 * in the net epoch here.
+	 * ip6_setpktopt can call ifnet_byindex(), so it's imperative that we
+	 * are in the network epoch here.
 	 */
 	NET_EPOCH_ASSERT();
 
@@ -2969,8 +2959,6 @@ ip6_setpktopt(int optname, u_char *buf, int len, struct ip6_pktopts *opt,
 		if (IN6_IS_ADDR_MULTICAST(&pktinfo->ipi6_addr))
 			return (EINVAL);
 		/* validate the interface index if specified. */
-		if (pktinfo->ipi6_ifindex > V_if_index)
-			 return (ENXIO);
 		if (pktinfo->ipi6_ifindex) {
 			ifp = ifnet_byindex(pktinfo->ipi6_ifindex);
 			if (ifp == NULL)

@@ -395,7 +395,8 @@ tcp_lro_parser(struct mbuf *m, struct lro_parser *po, struct lro_parser *pi, boo
 			    htons(m->m_pkthdr.ether_vtag) & htons(EVL_VLID_MASK);
 		}
 		/* Store decrypted flag, if any. */
-		if (__predict_false(m->m_flags & M_DECRYPTED))
+		if (__predict_false((m->m_pkthdr.csum_flags &
+		    CSUM_TLS_MASK) == CSUM_TLS_DECRYPTED))
 			po->data.lro_flags |= LRO_FLAG_DECRYPTED;
 	}
 
@@ -833,6 +834,8 @@ tcp_flush_out_entry(struct lro_ctrl *lc, struct lro_entry *le)
 			le->m_head->m_pkthdr.csum_flags = CSUM_DATA_VALID |
 			    CSUM_PSEUDO_HDR | CSUM_IP_CHECKED | CSUM_IP_VALID;
 			le->m_head->m_pkthdr.csum_data = 0xffff;
+			if (__predict_false(le->outer.data.lro_flags & LRO_FLAG_DECRYPTED))
+				le->m_head->m_pkthdr.csum_flags |= CSUM_TLS_DECRYPTED;
 			break;
 		case LRO_TYPE_IPV6_TCP:
 			csum = tcp_lro_update_checksum(&le->inner, le,
@@ -844,6 +847,8 @@ tcp_flush_out_entry(struct lro_ctrl *lc, struct lro_entry *le)
 			le->m_head->m_pkthdr.csum_flags = CSUM_DATA_VALID |
 			    CSUM_PSEUDO_HDR;
 			le->m_head->m_pkthdr.csum_data = 0xffff;
+			if (__predict_false(le->outer.data.lro_flags & LRO_FLAG_DECRYPTED))
+				le->m_head->m_pkthdr.csum_flags |= CSUM_TLS_DECRYPTED;
 			break;
 		case LRO_TYPE_NONE:
 			switch (le->outer.data.lro_type) {
@@ -854,6 +859,8 @@ tcp_flush_out_entry(struct lro_ctrl *lc, struct lro_entry *le)
 				le->m_head->m_pkthdr.csum_flags = CSUM_DATA_VALID |
 				    CSUM_PSEUDO_HDR | CSUM_IP_CHECKED | CSUM_IP_VALID;
 				le->m_head->m_pkthdr.csum_data = 0xffff;
+				if (__predict_false(le->outer.data.lro_flags & LRO_FLAG_DECRYPTED))
+					le->m_head->m_pkthdr.csum_flags |= CSUM_TLS_DECRYPTED;
 				break;
 			case LRO_TYPE_IPV6_TCP:
 				csum = tcp_lro_update_checksum(&le->outer, le,
@@ -862,6 +869,8 @@ tcp_flush_out_entry(struct lro_ctrl *lc, struct lro_entry *le)
 				le->m_head->m_pkthdr.csum_flags = CSUM_DATA_VALID |
 				    CSUM_PSEUDO_HDR;
 				le->m_head->m_pkthdr.csum_data = 0xffff;
+				if (__predict_false(le->outer.data.lro_flags & LRO_FLAG_DECRYPTED))
+					le->m_head->m_pkthdr.csum_flags |= CSUM_TLS_DECRYPTED;
 				break;
 			default:
 				break;
@@ -1021,7 +1030,7 @@ again:
 	}
 	if ((th->th_flags & ~(TH_ACK | TH_PUSH)) != 0) {
 		/*
-		 * Make sure that previously seen segements/ACKs are delivered
+		 * Make sure that previously seen segments/ACKs are delivered
 		 * before this segment, e.g. FIN.
 		 */
 		le->m_head->m_nextpkt = m->m_nextpkt;
@@ -1301,8 +1310,7 @@ tcp_lro_flush_tcphpts(struct lro_ctrl *lc, struct lro_entry *le)
 
 	/* Check if the inp is dead, Jim. */
 	if (tp == NULL ||
-	    (inp->inp_flags & (INP_DROPPED | INP_TIMEWAIT)) ||
-	    (inp->inp_flags2 & INP_FREED)) {
+	    (inp->inp_flags & (INP_DROPPED | INP_TIMEWAIT))) {
 		INP_WUNLOCK(inp);
 		return (TCP_LRO_CANNOT);
 	}
@@ -1346,7 +1354,7 @@ tcp_lro_flush_tcphpts(struct lro_ctrl *lc, struct lro_entry *le)
 	if (le->m_head != NULL) {
 		counter_u64_add(tcp_inp_lro_direct_queue, 1);
 		tcp_lro_log(tp, lc, le, NULL, 22, 1,
-			    inp->inp_flags2, inp->inp_in_input, 1);
+			    inp->inp_flags2, inp->inp_in_dropq, 1);
 		tcp_queue_pkts(inp, tp, le);
 	}
 	if (should_wake) {

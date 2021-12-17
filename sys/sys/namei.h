@@ -49,7 +49,6 @@ struct componentname {
 	 */
 	u_int64_t cn_origflags;	/* flags to namei */
 	u_int64_t cn_flags;	/* flags to namei */
-	struct	thread *cn_thread;/* thread requesting lookup */
 	struct	ucred *cn_cred;	/* credentials */
 	enum nameiop cn_nameiop;	/* namei operation */
 	int	cn_lkflags;	/* Lock flags LK_EXCLUSIVE or LK_SHARED */
@@ -218,14 +217,14 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 /*
  * Initialization of a nameidata structure.
  */
-#define	NDINIT(ndp, op, flags, segflg, namep, td)			\
-	NDINIT_ALL(ndp, op, flags, segflg, namep, AT_FDCWD, NULL, &cap_no_rights, td)
-#define	NDINIT_AT(ndp, op, flags, segflg, namep, dirfd, td)		\
-	NDINIT_ALL(ndp, op, flags, segflg, namep, dirfd, NULL, &cap_no_rights, td)
-#define	NDINIT_ATRIGHTS(ndp, op, flags, segflg, namep, dirfd, rightsp, td) \
-	NDINIT_ALL(ndp, op, flags, segflg, namep, dirfd, NULL, rightsp, td)
-#define	NDINIT_ATVP(ndp, op, flags, segflg, namep, vp, td)		\
-	NDINIT_ALL(ndp, op, flags, segflg, namep, AT_FDCWD, vp, &cap_no_rights, td)
+#define	NDINIT(ndp, op, flags, segflg, namep)				\
+	NDINIT_ALL(ndp, op, flags, segflg, namep, AT_FDCWD, NULL, &cap_no_rights)
+#define	NDINIT_AT(ndp, op, flags, segflg, namep, dirfd)			\
+	NDINIT_ALL(ndp, op, flags, segflg, namep, dirfd, NULL, &cap_no_rights)
+#define	NDINIT_ATRIGHTS(ndp, op, flags, segflg, namep, dirfd, rightsp) 	\
+	NDINIT_ALL(ndp, op, flags, segflg, namep, dirfd, NULL, rightsp)
+#define	NDINIT_ATVP(ndp, op, flags, segflg, namep, vp)			\
+	NDINIT_ALL(ndp, op, flags, segflg, namep, AT_FDCWD, vp, &cap_no_rights)
 
 /*
  * Note the constant pattern may *hide* bugs.
@@ -247,7 +246,7 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 #define NDREINIT_DBG(arg)	do { } while (0)
 #endif
 
-#define NDINIT_ALL(ndp, op, flags, segflg, namep, dirfd, startdir, rightsp, td)	\
+#define NDINIT_ALL(ndp, op, flags, segflg, namep, dirfd, startdir, rightsp)	\
 do {										\
 	struct nameidata *_ndp = (ndp);						\
 	cap_rights_t *_rightsp = (rightsp);					\
@@ -262,7 +261,6 @@ do {										\
 	_ndp->ni_startdir = startdir;						\
 	_ndp->ni_resflags = 0;							\
 	filecaps_init(&_ndp->ni_filecaps);					\
-	_ndp->ni_cnd.cn_thread = td;						\
 	_ndp->ni_rightsneeded = _rightsp;					\
 } while (0)
 

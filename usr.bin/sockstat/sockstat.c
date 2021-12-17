@@ -874,7 +874,7 @@ printaddr(struct sockaddr_storage *ss)
 
 	switch (ss->ss_family) {
 	case AF_INET:
-		if (inet_lnaof(sstosin(ss)->sin_addr) == INADDR_ANY)
+		if (sstosin(ss)->sin_addr.s_addr == INADDR_ANY)
 			addrstr[0] = '*';
 		port = ntohs(sstosin(ss)->sin_port);
 		break;
@@ -1292,6 +1292,10 @@ jail_getvnet(int jid)
 {
 	struct iovec jiov[6];
 	int vnet;
+	size_t len = sizeof(vnet);
+
+	if (sysctlbyname("kern.features.vimage", &vnet, &len, NULL, 0) != 0)
+		return (0);
 
 	vnet = -1;
 	jiov[0].iov_base = __DECONST(char *, "jid");
@@ -1352,7 +1356,7 @@ main(int argc, char *argv[])
 		case 'j':
 			opt_j = jail_getid(optarg);
 			if (opt_j < 0)
-				errx(1, "%s", jail_errmsg);
+				errx(1, "jail_getid: %s", jail_errmsg);
 			break;
 		case 'L':
 			opt_L = 1;
@@ -1403,7 +1407,7 @@ main(int argc, char *argv[])
 	if (opt_j > 0) {
 		switch (jail_getvnet(opt_j)) {
 		case -1:
-			errx(2, "%s", jail_errmsg);
+			errx(2, "jail_getvnet: %s", jail_errmsg);
 		case JAIL_SYS_NEW:
 			if (jail_attach(opt_j) < 0)
 				err(3, "jail_attach()");

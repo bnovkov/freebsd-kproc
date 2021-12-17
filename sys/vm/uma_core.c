@@ -331,7 +331,7 @@ static uma_keg_t uma_kcreate(uma_zone_t zone, size_t size, uma_init uminit,
 static int zone_import(void *, void **, int, int, int);
 static void zone_release(void *, void **, int);
 static bool cache_alloc(uma_zone_t, uma_cache_t, void *, int);
-static bool cache_free(uma_zone_t, uma_cache_t, void *, void *, int);
+static bool cache_free(uma_zone_t, uma_cache_t, void *, int);
 
 static int sysctl_vm_zone_count(SYSCTL_HANDLER_ARGS);
 static int sysctl_vm_zone_stats(SYSCTL_HANDLER_ARGS);
@@ -1885,17 +1885,15 @@ startup_alloc(uma_zone_t zone, vm_size_t bytes, int domain, uint8_t *pflag,
 {
 	vm_paddr_t pa;
 	vm_page_t m;
-	void *mem;
-	int pages;
-	int i;
+	int i, pages;
 
 	pages = howmany(bytes, PAGE_SIZE);
 	KASSERT(pages > 0, ("%s can't reserve 0 pages", __func__));
 
 	*pflag = UMA_SLAB_BOOT;
-	m = vm_page_alloc_contig_domain(NULL, 0, domain,
-	    malloc2vm_flags(wait) | VM_ALLOC_NOOBJ | VM_ALLOC_WIRED, pages, 
-	    (vm_paddr_t)0, ~(vm_paddr_t)0, 1, 0, VM_MEMATTR_DEFAULT);
+	m = vm_page_alloc_noobj_contig_domain(domain, malloc2vm_flags(wait) |
+	    VM_ALLOC_WIRED, pages, (vm_paddr_t)0, ~(vm_paddr_t)0, 1, 0,
+	    VM_MEMATTR_DEFAULT);
 	if (m == NULL)
 		return (NULL);
 
@@ -1907,13 +1905,10 @@ startup_alloc(uma_zone_t zone, vm_size_t bytes, int domain, uint8_t *pflag,
 			dump_add_page(pa);
 #endif
 	}
-	/* Allocate KVA and indirectly advance bootmem. */
-	mem = (void *)pmap_map(&bootmem, m->phys_addr,
-	    m->phys_addr + (pages * PAGE_SIZE), VM_PROT_READ | VM_PROT_WRITE);
-        if ((wait & M_ZERO) != 0)
-                bzero(mem, pages * PAGE_SIZE);
 
-        return (mem);
+	/* Allocate KVA and indirectly advance bootmem. */
+	return ((void *)pmap_map(&bootmem, m->phys_addr,
+	    m->phys_addr + (pages * PAGE_SIZE), VM_PROT_READ | VM_PROT_WRITE));
 }
 
 static void
@@ -1979,24 +1974,23 @@ pcpu_page_alloc(uma_zone_t zone, vm_size_t bytes, int domain, uint8_t *pflag,
 	MPASS(bytes == (mp_maxid + 1) * PAGE_SIZE);
 
 	TAILQ_INIT(&alloctail);
-	flags = VM_ALLOC_SYSTEM | VM_ALLOC_WIRED | VM_ALLOC_NOOBJ |
-	    malloc2vm_flags(wait);
+	flags = VM_ALLOC_SYSTEM | VM_ALLOC_WIRED | malloc2vm_flags(wait);
 	*pflag = UMA_SLAB_KERNEL;
 	for (cpu = 0; cpu <= mp_maxid; cpu++) {
 		if (CPU_ABSENT(cpu)) {
-			p = vm_page_alloc(NULL, 0, flags);
+			p = vm_page_alloc_noobj(flags);
 		} else {
 #ifndef NUMA
-			p = vm_page_alloc(NULL, 0, flags);
+			p = vm_page_alloc_noobj(flags);
 #else
 			pc = pcpu_find(cpu);
 			if (__predict_false(VM_DOMAIN_EMPTY(pc->pc_domain)))
 				p = NULL;
 			else
-				p = vm_page_alloc_domain(NULL, 0,
-				    pc->pc_domain, flags);
+				p = vm_page_alloc_noobj_domain(pc->pc_domain,
+				    flags);
 			if (__predict_false(p == NULL))
-				p = vm_page_alloc(NULL, 0, flags);
+				p = vm_page_alloc_noobj(flags);
 #endif
 		}
 		if (__predict_false(p == NULL))
@@ -2020,7 +2014,7 @@ fail:
 }
 
 /*
- * Allocates a number of pages from within an object
+ * Allocates a number of pages not belonging to a VM object
  *
  * Arguments:
  *	bytes  The number of bytes requested
@@ -2039,16 +2033,17 @@ noobj_alloc(uma_zone_t zone, vm_size_t bytes, int domain, uint8_t *flags,
 	vm_offset_t retkva, zkva;
 	vm_page_t p, p_next;
 	uma_keg_t keg;
+	int req;
 
 	TAILQ_INIT(&alloctail);
 	keg = zone->uz_keg;
+	req = VM_ALLOC_INTERRUPT | VM_ALLOC_WIRED;
+	if ((wait & M_WAITOK) != 0)
+		req |= VM_ALLOC_WAITOK;
 
 	npages = howmany(bytes, PAGE_SIZE);
 	while (npages > 0) {
-		p = vm_page_alloc_domain(NULL, 0, domain, VM_ALLOC_INTERRUPT |
-		    VM_ALLOC_WIRED | VM_ALLOC_NOOBJ |
-		    ((wait & M_WAITOK) != 0 ? VM_ALLOC_WAITOK :
-		    VM_ALLOC_NOWAIT));
+		p = vm_page_alloc_noobj_domain(domain, req);
 		if (p != NULL) {
 			/*
 			 * Since the page does not belong to an object, its
@@ -3919,6 +3914,9 @@ keg_fetch_slab(uma_keg_t keg, uma_zone_t zone, int rdomain, const int flags)
 	int aflags, domain;
 	bool rr;
 
+	KASSERT((flags & (M_WAITOK | M_NOVM)) != (M_WAITOK | M_NOVM),
+	    ("%s: invalid flags %#x", __func__, flags));
+
 restart:
 	/*
 	 * Use the keg's policy if upper layers haven't already specified a
@@ -3944,17 +3942,29 @@ restart:
 			return (slab);
 
 		/*
-		 * M_NOVM means don't ask at all!
+		 * M_NOVM is used to break the recursion that can otherwise
+		 * occur if low-level memory management routines use UMA.
 		 */
-		if (flags & M_NOVM)
-			break;
+		if ((flags & M_NOVM) == 0) {
+			slab = keg_alloc_slab(keg, zone, domain, flags, aflags);
+			if (slab != NULL)
+				return (slab);
+		}
 
-		slab = keg_alloc_slab(keg, zone, domain, flags, aflags);
-		if (slab != NULL)
-			return (slab);
-		if (!rr && (flags & M_WAITOK) == 0)
-			break;
-		if (rr && vm_domainset_iter_policy(&di, &domain) != 0) {
+		if (!rr) {
+			if ((flags & M_USE_RESERVE) != 0) {
+				/*
+				 * Drain reserves from other domains before
+				 * giving up or sleeping.  It may be useful to
+				 * support per-domain reserves eventually.
+				 */
+				rdomain = UMA_ANYDOMAIN;
+				goto restart;
+			}
+			if ((flags & M_WAITOK) == 0)
+				break;
+			vm_wait_domain(domain);
+		} else if (vm_domainset_iter_policy(&di, &domain) != 0) {
 			if ((flags & M_WAITOK) != 0) {
 				vm_wait_doms(&keg->uk_dr.dr_policy->ds_mask, 0);
 				goto restart;
@@ -4028,7 +4038,8 @@ zone_import(void *arg, void **bucket, int max, int domain, int flags)
 		dom = &keg->uk_domain[slab->us_domain];
 		do {
 			bucket[i++] = slab_alloc_item(keg, slab);
-			if (dom->ud_free_items <= keg->uk_reserve) {
+			if (keg->uk_reserve > 0 &&
+			    dom->ud_free_items <= keg->uk_reserve) {
 				/*
 				 * Avoid depleting the reserve after a
 				 * successful item allocation, even if
@@ -4399,7 +4410,7 @@ uma_zfree_smr(uma_zone_t zone, void *item)
 			critical_exit();
 			return;
 		}
-	} while (cache_free(zone, cache, NULL, item, itemdomain));
+	} while (cache_free(zone, cache, NULL, itemdomain));
 	critical_exit();
 
 	/*
@@ -4493,7 +4504,7 @@ uma_zfree_arg(uma_zone_t zone, void *item, void *udata)
 			critical_exit();
 			return;
 		}
-	} while (cache_free(zone, cache, udata, item, itemdomain));
+	} while (cache_free(zone, cache, udata, itemdomain));
 	critical_exit();
 
 	/*
@@ -4634,8 +4645,7 @@ zone_free_bucket(uma_zone_t zone, uma_bucket_t bucket, void *udata,
  * the caller should retry.
  */
 static __noinline bool
-cache_free(uma_zone_t zone, uma_cache_t cache, void *udata, void *item,
-    int itemdomain)
+cache_free(uma_zone_t zone, uma_cache_t cache, void *udata, int itemdomain)
 {
 	uma_cache_bucket_t cbucket;
 	uma_bucket_t newbucket, bucket;

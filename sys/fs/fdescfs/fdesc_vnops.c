@@ -159,10 +159,8 @@ fdesc_allocvp(fdntype ftype, unsigned fd_fd, int ix, struct mount *mp,
 	struct fdhashhead *fc;
 	struct fdescnode *fd, *fd2;
 	struct vnode *vp, *vp2;
-	struct thread *td;
 	int error;
 
-	td = curthread;
 	fc = FD_NHASH(ix);
 loop:
 	mtx_lock(&fdesc_hashmtx);
@@ -293,7 +291,7 @@ fdesc_lookup(struct vop_lookup_args *ap)
 	struct vnode *dvp = ap->a_dvp;
 	struct componentname *cnp = ap->a_cnp;
 	char *pname = cnp->cn_nameptr;
-	struct thread *td = cnp->cn_thread;
+	struct thread *td = curthread;
 	struct file *fp;
 	struct fdesc_get_ino_args arg;
 	int nlen = cnp->cn_namelen;

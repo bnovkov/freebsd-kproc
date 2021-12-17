@@ -190,7 +190,7 @@ static int vn_io_fault1(struct vnode *vp, struct uio *uio,
 int
 vn_open(struct nameidata *ndp, int *flagp, int cmode, struct file *fp)
 {
-	struct thread *td = ndp->ni_cnd.cn_thread;
+	struct thread *td = curthread;
 
 	return (vn_open_cred(ndp, flagp, cmode, 0, td->td_ucred, fp));
 }
@@ -230,7 +230,6 @@ vn_open_cred(struct nameidata *ndp, int *flagp, int cmode, u_int vn_open_flags,
 {
 	struct vnode *vp;
 	struct mount *mp;
-	struct thread *td = ndp->ni_cnd.cn_thread;
 	struct vattr vat;
 	struct vattr *vap = &vat;
 	int fmode, error;
@@ -332,7 +331,7 @@ restart:
 			return (error);
 		vp = ndp->ni_vp;
 	}
-	error = vn_open_vnode(vp, fmode, cred, td, fp);
+	error = vn_open_vnode(vp, fmode, cred, curthread, fp);
 	if (first_open) {
 		VI_LOCK(vp);
 		vp->v_iflag &= ~VI_FOPENING;
@@ -1671,14 +1670,13 @@ vn_truncate_locked(struct vnode *vp, off_t length, bool sync,
  * File table vnode stat routine.
  */
 int
-vn_statfile(struct file *fp, struct stat *sb, struct ucred *active_cred,
-    struct thread *td)
+vn_statfile(struct file *fp, struct stat *sb, struct ucred *active_cred)
 {
 	struct vnode *vp = fp->f_vnode;
 	int error;
 
 	vn_lock(vp, LK_SHARED | LK_RETRY);
-	error = VOP_STAT(vp, sb, active_cred, fp->f_cred, td);
+	error = VOP_STAT(vp, sb, active_cred, fp->f_cred);
 	VOP_UNLOCK(vp);
 
 	return (error);
@@ -2431,6 +2429,10 @@ vn_chown(struct file *fp, uid_t uid, gid_t gid, struct ucred *active_cred,
 	return (setfown(td, active_cred, vp, uid, gid));
 }
 
+/*
+ * Remove pages in the range ["start", "end") from the vnode's VM object.  If
+ * "end" is 0, then the range extends to the end of the object.
+ */
 void
 vn_pages_remove(struct vnode *vp, vm_pindex_t start, vm_pindex_t end)
 {
@@ -2440,6 +2442,24 @@ vn_pages_remove(struct vnode *vp, vm_pindex_t start, vm_pindex_t end)
 		return;
 	VM_OBJECT_WLOCK(object);
 	vm_object_page_remove(object, start, end, 0);
+	VM_OBJECT_WUNLOCK(object);
+}
+
+/*
+ * Like vn_pages_remove(), but skips invalid pages, which by definition are not
+ * mapped into any process' address space.  Filesystems may use this in
+ * preference to vn_pages_remove() to avoid blocking on pages busied in
+ * preparation for a VOP_GETPAGES.
+ */
+void
+vn_pages_remove_valid(struct vnode *vp, vm_pindex_t start, vm_pindex_t end)
+{
+	vm_object_t object;
+
+	if ((object = vp->v_object) == NULL)
+		return;
+	VM_OBJECT_WLOCK(object);
+	vm_object_page_remove(object, start, end, OBJPR_VALIDONLY);
 	VM_OBJECT_WUNLOCK(object);
 }
 
@@ -3468,7 +3488,8 @@ vn_fallocate(struct file *fp, off_t offset, off_t len, struct thread *td)
 		error = mac_vnode_check_write(td->td_ucred, fp->f_cred, vp);
 		if (error == 0)
 #endif
-			error = VOP_ALLOCATE(vp, &offset, &len);
+			error = VOP_ALLOCATE(vp, &offset, &len, 0,
+			    td->td_ucred);
 		VOP_UNLOCK(vp);
 		vn_finished_write(mp);
 

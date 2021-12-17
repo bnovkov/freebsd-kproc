@@ -661,7 +661,6 @@ nfsvno_namei(struct nfsrv_descript *nd, struct nameidata *ndp,
 	 * because lookup() will dereference ni_startdir.
 	 */
 
-	cnp->cn_thread = curthread;
 	ndp->ni_startdir = dp;
 	ndp->ni_rootdir = rootvnode;
 	ndp->ni_topdir = NULL;
@@ -2048,7 +2047,7 @@ nfsrvd_readdir(struct nfsrv_descript *nd, int isdgram,
 	int nlen, error = 0, getret = 1;
 	int siz, cnt, fullsiz, eofflag, ncookies;
 	u_int64_t off, toff, verf __unused;
-	u_long *cookies = NULL, *cookiep;
+	uint64_t *cookies = NULL, *cookiep;
 	struct uio io;
 	struct iovec iv;
 	int is_ufs;
@@ -2259,10 +2258,11 @@ again:
 			(void) nfsm_strtom(nd, dp->d_name, nlen);
 			if (nd->nd_flag & ND_NFSV3) {
 				NFSM_BUILD(tl, u_int32_t *, 2 * NFSX_UNSIGNED);
-				*tl++ = 0;
-			} else
+				txdr_hyper(*cookiep, tl);
+			} else {
 				NFSM_BUILD(tl, u_int32_t *, NFSX_UNSIGNED);
-			*tl = txdr_unsigned(*cookiep);
+				*tl = txdr_unsigned(*cookiep);
+			}
 		}
 		cpos += dp->d_reclen;
 		dp = (struct dirent *)cpos;
@@ -2308,8 +2308,8 @@ nfsrvd_readdirplus(struct nfsrv_descript *nd, int isdgram,
 	int nlen, r, error = 0, getret = 1, usevget = 1;
 	int siz, cnt, fullsiz, eofflag, ncookies, entrycnt;
 	caddr_t bpos0, bpos1;
-	u_int64_t off, toff, verf;
-	u_long *cookies = NULL, *cookiep;
+	u_int64_t off, toff, verf __unused;
+	uint64_t *cookies = NULL, *cookiep;
 	nfsattrbit_t attrbits, rderrbits, savbits;
 	struct uio io;
 	struct iovec iv;
@@ -2526,7 +2526,6 @@ again:
 			cn.cn_nameiop = LOOKUP;
 			cn.cn_lkflags = LK_SHARED | LK_RETRY;
 			cn.cn_cred = nd->nd_cred;
-			cn.cn_thread = p;
 		} else if (r == 0)
 			vput(nvp);
 	}
@@ -2626,7 +2625,6 @@ again:
 							    LK_RETRY;
 							cn.cn_cred =
 							    nd->nd_cred;
-							cn.cn_thread = p;
 						}
 						cn.cn_nameptr = dp->d_name;
 						cn.cn_namelen = nlen;
@@ -2750,8 +2748,7 @@ again:
 				*tl = txdr_unsigned(dp->d_fileno);
 				dirlen += nfsm_strtom(nd, dp->d_name, nlen);
 				NFSM_BUILD(tl, u_int32_t *, 2 * NFSX_UNSIGNED);
-				*tl++ = 0;
-				*tl = txdr_unsigned(*cookiep);
+				txdr_hyper(*cookiep, tl);
 				nfsrv_postopattr(nd, 0, nvap);
 				dirlen += nfsm_fhtom(nd,(u_int8_t *)&nfh,0,1);
 				dirlen += (5*NFSX_UNSIGNED+NFSX_V3POSTOPATTR);
@@ -2760,8 +2757,7 @@ again:
 			} else {
 				NFSM_BUILD(tl, u_int32_t *, 3 * NFSX_UNSIGNED);
 				*tl++ = newnfs_true;
-				*tl++ = 0;
-				*tl = txdr_unsigned(*cookiep);
+				txdr_hyper(*cookiep, tl);
 				dirlen += nfsm_strtom(nd, dp->d_name, nlen);
 				if (nvp != NULL) {
 					supports_nfsv4acls =
@@ -3471,8 +3467,7 @@ nfsrv_v4rootexport(void *argp, struct ucred *cred, struct thread *p)
 		/*
 		 * If fspec != NULL, this is the v4root path.
 		 */
-		NDINIT(&nd, LOOKUP, FOLLOW, UIO_USERSPACE,
-		    nfsexargp->fspec, p);
+		NDINIT(&nd, LOOKUP, FOLLOW, UIO_USERSPACE, nfsexargp->fspec);
 		if ((error = namei(&nd)) != 0)
 			goto out;
 		error = nfsvno_getfh(nd.ni_vp, &fh, p);
@@ -4183,7 +4178,6 @@ nfsrv_dscreate(struct vnode *dvp, struct vattr *vap, struct vattr *nvap,
 	    LOCKPARENT | LOCKLEAF | SAVESTART | NOCACHE);
 	nfsvno_setpathbuf(&named, &bufp, &hashp);
 	named.ni_cnd.cn_lkflags = LK_EXCLUSIVE;
-	named.ni_cnd.cn_thread = p;
 	named.ni_cnd.cn_nameptr = bufp;
 	if (fnamep != NULL) {
 		strlcpy(bufp, fnamep, PNFS_FILENAME_LEN + 1);
@@ -4567,7 +4561,6 @@ nfsrv_dsremove(struct vnode *dvp, char *fname, struct ucred *tcred,
 	named.ni_cnd.cn_nameiop = DELETE;
 	named.ni_cnd.cn_lkflags = LK_EXCLUSIVE | LK_RETRY;
 	named.ni_cnd.cn_cred = tcred;
-	named.ni_cnd.cn_thread = p;
 	named.ni_cnd.cn_flags = ISLASTCN | LOCKPARENT | LOCKLEAF | SAVENAME;
 	nfsvno_setpathbuf(&named, &bufp, &hashp);
 	named.ni_cnd.cn_nameptr = bufp;
@@ -6341,7 +6334,6 @@ nfsrv_pnfslookupds(struct vnode *vp, struct vnode *dvp, struct pnfsdsfile *pf,
 	named.ni_cnd.cn_nameiop = LOOKUP;
 	named.ni_cnd.cn_lkflags = LK_SHARED | LK_RETRY;
 	named.ni_cnd.cn_cred = tcred;
-	named.ni_cnd.cn_thread = p;
 	named.ni_cnd.cn_flags = ISLASTCN | LOCKPARENT | LOCKLEAF | SAVENAME;
 	nfsvno_setpathbuf(&named, &bufp, &hashp);
 	named.ni_cnd.cn_nameptr = bufp;
@@ -6604,7 +6596,7 @@ nfsvno_allocate(struct vnode *vp, off_t off, off_t len, struct ucred *cred,
 	 */
 	do {
 		olen = len;
-		error = VOP_ALLOCATE(vp, &off, &len);
+		error = VOP_ALLOCATE(vp, &off, &len, IO_SYNC, cred);
 		if (error == 0 && len > 0 && olen > len)
 			maybe_yield();
 	} while (error == 0 && len > 0 && olen > len);
@@ -6953,6 +6945,59 @@ nfsrv_checkwrongsec(struct nfsrv_descript *nd, int nextop, enum vtype vtyp)
 	if (nextop == NFSV4OP_OPEN && vtyp == VDIR)
 		return (false);
 	return (true);
+}
+
+/*
+ * Check DSs marked no space.
+ */
+void
+nfsrv_checknospc(void)
+{
+	struct statfs *tsf;
+	struct nfsdevice *ds;
+	struct vnode **dvpp, **tdvpp, *dvp;
+	char *devid, *tdevid;
+	int cnt, error = 0, i;
+
+	if (nfsrv_devidcnt <= 0)
+		return;
+	dvpp = mallocarray(nfsrv_devidcnt, sizeof(*dvpp), M_TEMP, M_WAITOK);
+	devid = malloc(nfsrv_devidcnt * NFSX_V4DEVICEID, M_TEMP, M_WAITOK);
+	tsf = malloc(sizeof(*tsf), M_TEMP, M_WAITOK);
+
+	/* Get an array of the dvps for the DSs. */
+	tdvpp = dvpp;
+	tdevid = devid;
+	i = 0;
+	NFSDDSLOCK();
+	/* First, search for matches for same file system. */
+	TAILQ_FOREACH(ds, &nfsrv_devidhead, nfsdev_list) {
+		if (ds->nfsdev_nmp != NULL && ds->nfsdev_nospc) {
+			if (++i > nfsrv_devidcnt)
+				break;
+			*tdvpp++ = ds->nfsdev_dvp;
+			NFSBCOPY(ds->nfsdev_deviceid, tdevid, NFSX_V4DEVICEID);
+			tdevid += NFSX_V4DEVICEID;
+		}
+	}
+	NFSDDSUNLOCK();
+
+	/* Do a VFS_STATFS() for each of the DSs and clear no space. */
+	cnt = i;
+	tdvpp = dvpp;
+	tdevid = devid;
+	for (i = 0; i < cnt && error == 0; i++) {
+		dvp = *tdvpp++;
+		error = VFS_STATFS(dvp->v_mount, tsf);
+		if (error == 0 && tsf->f_bavail > 0) {
+			NFSD_DEBUG(1, "nfsrv_checknospc: reset nospc\n");
+			nfsrv_marknospc(tdevid, false);
+		}
+		tdevid += NFSX_V4DEVICEID;
+	}
+	free(tsf, M_TEMP);
+	free(dvpp, M_TEMP);
+	free(devid, M_TEMP);
 }
 
 extern int (*nfsd_call_nfsd)(struct thread *, struct nfssvc_args *);

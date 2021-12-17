@@ -193,7 +193,6 @@ struct racct;
 struct sbuf;
 struct sleepqueue;
 struct socket;
-struct syscall_args;
 struct td_sched;
 struct thread;
 struct trapframe;
@@ -201,6 +200,13 @@ struct turnstile;
 struct vm_map;
 struct vm_map_entry;
 struct epoch_tracker;
+
+struct syscall_args {
+	u_int code;
+	u_int original_code;
+	struct sysent *callp;
+	register_t args[8];
+};
 
 /*
  * XXX: Does this belong in resource.h or resourcevar.h instead?
@@ -307,7 +313,7 @@ struct thread {
 	struct osd	td_osd;		/* (k) Object specific data. */
 	struct vm_map_entry *td_map_def_user; /* (k) Deferred entries. */
 	pid_t		td_dbg_forked;	/* (c) Child pid for debugger. */
-	struct vnode	*td_vp_reserved;/* (k) Prealloated vnode. */
+	struct vnode	*td_vp_reserved;/* (k) Preallocated vnode. */
 	u_int		td_no_sleeping;	/* (k) Sleeping disabled count. */
 	void		*td_su;		/* (k) FFS SU private */
 	sbintime_t	td_sleeptimo;	/* (t) Sleep timeout. */
@@ -524,7 +530,7 @@ do {									\
 #define	TDP_RESETSPUR	0x04000000 /* Reset spurious page fault history. */
 #define	TDP_NERRNO	0x08000000 /* Last errno is already in td_errno */
 #define	TDP_UIOHELD	0x10000000 /* Current uio has pages held in td_ma */
-#define	TDP_FORKING	0x20000000 /* Thread is being created through fork() */
+#define	TDP_UNUSED0	0x20000000 /* UNUSED */
 #define	TDP_EXECVMSPC	0x40000000 /* Execve destroyed old vmspace */
 #define	TDP_SIGFASTPENDING 0x80000000 /* Pending signal due to sigfastblock */
 
@@ -666,6 +672,8 @@ struct proc {
 	int		p_traceflag;	/* (o) Kernel trace points. */
 	struct ktr_io_params	*p_ktrioparms;	/* (c + o) Params for ktrace. */
 	struct vnode	*p_textvp;	/* (b) Vnode of executable. */
+	struct vnode	*p_textdvp;	/* (b) Dir containing textvp. */
+	char		*p_binname;	/* (b) Binary hardlink name. */
 	u_int		p_lock;		/* (c) Proclock (prevent swap) count. */
 	struct sigiolst	p_sigiolst;	/* (c) List of sigio sources. */
 	int		p_sigparent;	/* (c) Signal to parent on exit. */
@@ -1125,6 +1133,9 @@ int	p_canwait(struct thread *td, struct proc *p);
 struct	pargs *pargs_alloc(int len);
 void	pargs_drop(struct pargs *pa);
 void	pargs_hold(struct pargs *pa);
+void	proc_add_orphan(struct proc *child, struct proc *parent);
+int	proc_get_binpath(struct proc *p, char *binname, char **fullpath,
+	    char **freepath);
 int	proc_getargv(struct thread *td, struct proc *p, struct sbuf *sb);
 int	proc_getauxv(struct thread *td, struct proc *p, struct sbuf *sb);
 int	proc_getenvv(struct thread *td, struct proc *p, struct sbuf *sb);
@@ -1135,7 +1146,6 @@ void	proc_linkup(struct proc *p, struct thread *td);
 struct proc *proc_realparent(struct proc *child);
 void	proc_reap(struct thread *td, struct proc *p, int *status, int options);
 void	proc_reparent(struct proc *child, struct proc *newparent, bool set_oppid);
-void	proc_add_orphan(struct proc *child, struct proc *parent);
 void	proc_set_traced(struct proc *p, bool stop);
 void	proc_wkilled(struct proc *p);
 struct	pstats *pstats_alloc(void);

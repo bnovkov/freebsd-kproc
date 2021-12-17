@@ -108,7 +108,7 @@ typedef	int fo_poll_t(struct file *fp, int events,
 		    struct ucred *active_cred, struct thread *td);
 typedef	int fo_kqfilter_t(struct file *fp, struct knote *kn);
 typedef	int fo_stat_t(struct file *fp, struct stat *sb,
-		    struct ucred *active_cred, struct thread *td);
+		    struct ucred *active_cred);
 typedef	int fo_close_t(struct file *fp, struct thread *td);
 typedef	int fo_chmod_t(struct file *fp, mode_t mode,
 		    struct ucred *active_cred, struct thread *td);
@@ -174,6 +174,7 @@ struct fileops {
  * none	not locked
  */
 
+#if __BSD_VISIBLE
 struct fadvise_info {
 	int		fa_advice;	/* (f) FADV_* type. */
 	off_t		fa_start;	/* (f) Region start. */
@@ -213,12 +214,14 @@ struct file {
 
 #define	FOFFSET_LOCKED       0x1
 #define	FOFFSET_LOCK_WAITING 0x2
+#endif /* __BSD_VISIBLE */
 
 #endif /* _KERNEL || _WANT_FILE */
 
 /*
  * Userland version of struct file, for sysctl
  */
+#if __BSD_VISIBLE
 struct xfile {
 	ksize_t	xf_size;	/* size of struct xfile */
 	pid_t	xf_pid;		/* owning process */
@@ -238,6 +241,7 @@ struct xfile {
 	int	_xf_int_pad3;
 	int64_t	_xf_int64_pad[6];
 };
+#endif /* __BSD_VISIBLE */
 
 #ifdef _KERNEL
 
@@ -369,11 +373,10 @@ fo_poll(struct file *fp, int events, struct ucred *active_cred,
 }
 
 static __inline int
-fo_stat(struct file *fp, struct stat *sb, struct ucred *active_cred,
-    struct thread *td)
+fo_stat(struct file *fp, struct stat *sb, struct ucred *active_cred)
 {
 
-	return ((*fp->f_ops->fo_stat)(fp, sb, active_cred, td));
+	return ((*fp->f_ops->fo_stat)(fp, sb, active_cred));
 }
 
 static __inline int

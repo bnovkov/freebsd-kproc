@@ -215,8 +215,6 @@ syscallret(struct thread *td)
 	ksiginfo_t ksi;
 	int traced;
 
-	KASSERT((td->td_pflags & TDP_FORKING) == 0,
-	    ("fork() did not clear TDP_FORKING upon completion"));
 	KASSERT(td->td_errno != ERELOOKUP,
 	    ("ERELOOKUP not consumed syscall %d", td->td_sa.code));
 
@@ -256,6 +254,24 @@ syscallret(struct thread *td)
 	if (__predict_false(traced ||
 	    (td->td_dbgflags & (TDB_EXEC | TDB_FORK)) != 0)) {
 		PROC_LOCK(p);
+		/*
+		 * Linux debuggers expect an additional stop for exec,
+		 * between the usual syscall entry and exit.  Raise
+		 * the exec event now and then clear TDB_EXEC so that
+		 * the next stop is reported as a syscall exit by
+		 * linux_ptrace_status().
+		 *
+		 * We are accessing p->p_pptr without any additional
+		 * locks here: it cannot change while p is kept locked;
+		 * while the debugger could in theory change its ABI
+		 * while tracing another process, the outcome of such
+		 * a race wouln't be deterministic anyway.
+		 */
+		if (traced && (td->td_dbgflags & TDB_EXEC) != 0 &&
+		    SV_PROC_ABI(p->p_pptr) == SV_ABI_LINUX) {
+			ptracestop(td, SIGTRAP, NULL);
+			td->td_dbgflags &= ~TDB_EXEC;
+		}
 		/*
 		 * If tracing the execed process, trap to the debugger
 		 * so that breakpoints can be set before the program

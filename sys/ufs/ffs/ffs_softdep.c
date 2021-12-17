@@ -2975,7 +2975,6 @@ softdep_journal_lookup(mp, vpp)
 	bzero(&cnp, sizeof(cnp));
 	cnp.cn_nameiop = LOOKUP;
 	cnp.cn_flags = ISLASTCN;
-	cnp.cn_thread = curthread;
 	cnp.cn_cred = curthread->td_ucred;
 	cnp.cn_pnbuf = SUJ_FILE;
 	cnp.cn_nameptr = SUJ_FILE;
@@ -5065,7 +5064,7 @@ softdep_setup_create(dp, ip)
 	struct inode *ip;
 {
 	struct inodedep *inodedep;
-	struct jaddref *jaddref;
+	struct jaddref *jaddref __diagused;
 	struct vnode *dvp;
 
 	KASSERT(MOUNTEDSOFTDEP(ITOVFS(dp)) != 0,
@@ -5206,11 +5205,9 @@ softdep_setup_rmdir(dp, ip)
 	struct inode *dp;
 	struct inode *ip;
 {
-	struct vnode *dvp;
 
 	KASSERT(MOUNTEDSOFTDEP(ITOVFS(dp)) != 0,
 	    ("softdep_setup_rmdir called on non-softdep filesystem"));
-	dvp = ITOV(dp);
 	ACQUIRE_LOCK(ITOUMP(dp));
 	(void) inodedep_lookup_ip(ip);
 	(void) inodedep_lookup_ip(dp);
@@ -5226,11 +5223,9 @@ softdep_setup_unlink(dp, ip)
 	struct inode *dp;
 	struct inode *ip;
 {
-	struct vnode *dvp;
 
 	KASSERT(MOUNTEDSOFTDEP(ITOVFS(dp)) != 0,
 	    ("softdep_setup_unlink called on non-softdep filesystem"));
-	dvp = ITOV(dp);
 	ACQUIRE_LOCK(ITOUMP(dp));
 	(void) inodedep_lookup_ip(ip);
 	(void) inodedep_lookup_ip(dp);
@@ -6425,7 +6420,7 @@ setup_allocindir_phase2(bp, ip, inodedep, aip, lbn)
 	struct allocindir *aip;	/* allocindir allocated by the above routines */
 	ufs_lbn_t lbn;		/* Logical block number for this block. */
 {
-	struct fs *fs;
+	struct fs *fs __diagused;
 	struct indirdep *indirdep;
 	struct allocindir *oldaip;
 	struct freefrag *freefrag;
@@ -9199,7 +9194,7 @@ complete_diradd(dap)
 
 /*
  * Cancel a diradd when a dirrem overlaps with it.  We must cancel the journal
- * add entries and conditonally journal the remove.
+ * add entries and conditionally journal the remove.
  */
 static void
 cancel_diradd(dap, dirrem, jremref, dotremref, dotdotremref)
@@ -10627,7 +10622,7 @@ initiate_write_inodeblock_ufs1(inodedep, bp)
 #ifdef INVARIANTS
 	ufs_lbn_t prevlbn = 0;
 #endif
-	int deplist;
+	int deplist __diagused;
 
 	if (inodedep->id_state & IOSTARTED)
 		panic("initiate_write_inodeblock_ufs1: already started");
@@ -10799,7 +10794,7 @@ initiate_write_inodeblock_ufs2(inodedep, bp)
 #ifdef INVARIANTS
 	ufs_lbn_t prevlbn = 0;
 #endif
-	int deplist;
+	int deplist __diagused;
 
 	if (inodedep->id_state & IOSTARTED)
 		panic("initiate_write_inodeblock_ufs2: already started");
