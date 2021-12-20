@@ -5,7 +5,6 @@
 
 #if defined(_KERNEL)
 
-int kas_init(void *data);
 void __kas_generated_init(void *data);
 int __kas_kirc_call(void); /* Used for indirect, function pointer calls */
 int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */

@@ -94,7 +94,7 @@ enum sysinit_sub_id {
 	SI_SUB_VM		= 0x1000000,	/* virtual memory system init */
 	SI_SUB_COUNTER		= 0x1100000,	/* counter(9) is initialized */
 	SI_SUB_KMEM		= 0x1800000,	/* kernel memory*/
-  SI_SUB_KAS	      = 0x1900000,	/* kernel address spaces init */
+  SI_SUB_KAS_BOOT	      = 0x1900000,	/* kernel address spaces init */
 	SI_SUB_HYPERVISOR	= 0x1A40000,	/*
 						 * Hypervisor detection and
 						 * virtualization support 
@@ -132,6 +132,7 @@ enum sysinit_sub_id {
 	SI_SUB_SMP		= 0x2900000,	/* start the APs*/
 #endif
 	SI_SUB_SOFTINTR		= 0x2A00000,	/* start soft interrupt thread */
+  SI_SUB_KAS_SMP     = 0x2B00000,	/* kernel address spaces SMP init */
 	SI_SUB_DEVFS		= 0x2F00000,	/* devfs ready for devices */
 	SI_SUB_INIT_IF		= 0x3000000,	/* prep for net interfaces */
 	SI_SUB_NETGRAPH		= 0x3010000,	/* Let Netgraph initialize */
