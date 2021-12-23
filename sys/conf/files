@@ -3966,7 +3966,7 @@ kern/vfs_mountroot.c		standard
 kern/vfs_subr.c			standard
 kern/vfs_syscalls.c		standard
 kern/vfs_vnops.c		standard
-
+kern/kern_dummy.c		standard
 #
 # Kernel GSS-API
 #
