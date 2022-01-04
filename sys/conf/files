@@ -3836,8 +3836,9 @@ kern/kern_umtx.c		standard
 kern/kern_uuid.c		standard
 kern/kern_xxx.c			standard
 kern/kern_kas.c     		standard
-kern/__kas_info.c		standard
 kern/kern_kas_generic.c		standard
+kern/kern_kas_common.c		standard
+kern/__kas_info.c		standard
 kern/link_elf.c			standard
 kern/linker_if.m		standard
 kern/md4c.c			optional netsmb

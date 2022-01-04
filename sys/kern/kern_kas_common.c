@@ -1,11 +1,25 @@
 #define _KAS
 
 #include <sys/kas.h>
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/kernel.h>
+#include <sys/cdefs.h>
+#include <vm/vm.h>
+#include <vm/pmap.h>
+#include <vm/vm_map.h>
+#include <vm/vm_page.h>
+#include <vm/vm_kern.h>
 
+#include <sys/smp.h>
+#include <machine/kas.h>
+
+//#include "__kas_info.c"
 // Check if curthread can exec target subsystem
 static int __kas_check_td_exec_right(void){
   return 1;
 }
+
 
 int __kas_kirc_call(int component_desc){
   __kas_enter();
@@ -72,12 +86,12 @@ static int kas_init(void){
   extern int __kas_vmkern_bss_start;
   extern int __kas_vmkern_bss_end;
 
-  kas_protect(__kas_vmkern_text_start, __kas_vmkern_text_end,
+  kas_protect((vm_offset_t)&__kas_vmkern_text_start, (vm_offset_t)&__kas_vmkern_text_end,
               VM_PROT_EXECUTE | VM_PROT_READ, 0);
-	kas_protect(__kas_vmkern_data_start, __kas_vmkern_data_end,
+	kas_protect((vm_offset_t)&__kas_vmkern_data_start, (vm_offset_t)&__kas_vmkern_data_end,
               VM_PROT_READ | VM_PROT_WRITE, 0);
-	kas_protect(__kas_vmkern_rodata_start, __kas_vmkern_rodata_end, VM_PROT_READ, 0);
-	kas_protect(__kas_vmkern_bss_start, __kas_vmkern_bss_end,
+	kas_protect((vm_offset_t)&__kas_vmkern_rodata_start, (vm_offset_t)&__kas_vmkern_rodata_end, VM_PROT_READ, 0);
+	kas_protect((vm_offset_t)&__kas_vmkern_bss_start, (vm_offset_t)&__kas_vmkern_bss_end,
               VM_PROT_READ | VM_PROT_WRITE, 0);
 
   __kas_generated_init(NULL);
@@ -88,38 +102,7 @@ static int kas_init(void){
 
 // TODO: maknuti ovo u md dio
 static void kas_smp_init(void){
-  vm_page_t  pcpu_kcr3_arr[32];
-
-  vm_offset_t cur_kcr3_vaddr = DMAP_MIN_ADDRESS + kernel_pmap->pm_cr3;
-
-  /* Allocate per-cpu top-level pagetables */
-  /* Leave first CPU intact */
-  for(int i=1; i<mp_ncpus-1; i++){
-    vm_page_t pcpu_kcr3 = vm_page_alloc_noobj(VM_ALLOC_WIRED);
-    KASSERT(pcpu_kcr3, ("kas_init: unable to allocate ptpg"));
-    vm_offset_t pcpu_kcr3_dmap_vaddr = DMAP_MIN_ADDRESS + (vm_offset_t)pcpu_kcr3->phys_addr;
-
-    /* Insert to dmap */
-    vm_map_lock(kernel_map);
-    vm_map_insert(kernel_map, NULL, 0, pcpu_kcr3_dmap_vaddr, pcpu_kcr3_dmap_vaddr + PAGE_SIZE, VM_PROT_RW, VM_PROT_RW, 0);
-    vm_map_unlock(kernel_map);
-
-    /* Copy top-level page table */
-    bcopy((void *)cur_kcr3_vaddr, (void *)pcpu_kcr3_dmap_vaddr, PAGE_SIZE);
-
-    pcpu_kcr3_arr[i] = pcpu_kcr3;
-  }
-
-
-  /* Leave first CPU intact */
-  for(int i=1; i<mp_ncpus-1; i++){
-    // TODO: cpuid_to_pcpu[i]
-    struct pcpu *cur_pcpu = cpuid_to_pcpu[i];
-    KASSERT(cur_pcpu, ("invalid pcpu"));
-    cur_pcpu->pc_kcr3 = pcpu_kcr3_arr[i]->phys_addr;
-    cur_pcpu->pc_ucr3 = -1;
-  }
-
+  kas_smp_md_init();
   return;
 }
 

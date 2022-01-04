@@ -23,7 +23,6 @@
 extern int kas__no_components;
 extern struct kas_component kas__components[];
 
-
 /*
  * KAS kernel routines.
  * Only accessible through __kas_enter.

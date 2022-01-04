@@ -6,13 +6,14 @@
 #if defined(_KERNEL)
 
 void __kas_generated_init(void *data);
-int __kas_kirc_call(void); /* Used for indirect, function pointer calls */
+int __kas_kirc_call(int); /* Used for indirect, function pointer calls */
 int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
 
 
 
 #if defined(_KAS)
 
+#include <machine/kas.h>
 
 #define  KAS_PROT_NONE  0
 #define  KAS_PROT_READ  0x1
@@ -55,6 +56,8 @@ struct kas_component {
   const char name[32];
 
   struct kas_component_layout layout;
+
+  struct kas_md md;
 };
 
 

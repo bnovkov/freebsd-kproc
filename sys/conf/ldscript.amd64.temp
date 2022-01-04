@@ -52,12 +52,17 @@ SECTIONS
     KEEP (*(.init))
   } =0xCCCCCCCC
   .plt            : { *(.plt)}
+  
+  . = ALIGN(4096);
+  __kas_start = .;
 
   INCLUDE /home/bojan/freebsd-src/sys/kas/kas.ldscript
 
   {% for line in kas_component_includes -%}
   {{ line }}
   {% endfor %}
+
+  __kas_end = .;
 
   .text           :
   {
