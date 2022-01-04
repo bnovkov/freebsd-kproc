@@ -11949,6 +11949,16 @@ DB_SHOW_COMMAND(ptpages, pmap_ptpages)
 }
 #endif
 
+/*
+ * Initializes the KAS subsystem for SMP machines.
+ * Each CPU gets a completely separate pagetable hierarchy
+ * which cotains the same information as the original except
+ * pagetable pages for KAS-isolated subsystems and the nested kernel.
+ * This approach makes a nested kernel architecture viable on
+ * SMP systems as the nested kernel and isolated subsystems can
+ * now be simultaneously accessed on each core without the possibility
+ * of accessing currently restricted (aka unmapped) regions.
+ */
 void kas_smp_md_init(void){
   extern int __kas_start;
   extern int __kas_end;
