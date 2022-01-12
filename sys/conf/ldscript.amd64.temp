@@ -7,6 +7,7 @@ SECTIONS
 {
   /* Read-only sections, merged into text segment: */
   . = kernbase + kernload + SIZEOF_HEADERS;
+
   /*
    * Use the AT keyword in order to set the right LMA that contains
    * the physical address where the section should be loaded. This is
@@ -47,23 +48,27 @@ SECTIONS
   .rela.bss       : { *(.rela.bss .rela.bss.* .rela.gnu.linkonce.b.*) }
   .rel.plt        : { *(.rel.plt) }
   .rela.plt       : { *(.rela.plt) }
+
+
+  . = ALIGN(4096);
+  __kas_start = .;
+    
+  {% for line in kas_component_includes -%}
+  {{ line }}
+  {% endfor %}
+
+  INCLUDE /home/bojan/freebsd-src/sys/kas/kas.ldscript
+  
+  __kas_end = .; 
+
+
+
   .init           :
   {
     KEEP (*(.init))
   } =0xCCCCCCCC
   .plt            : { *(.plt)}
   
-  . = ALIGN(4096);
-  __kas_start = .;
-
-  INCLUDE /home/bojan/freebsd-src/sys/kas/kas.ldscript
-
-  {% for line in kas_component_includes -%}
-  {{ line }}
-  {% endfor %}
-
-  __kas_end = .;
-
   .text           :
   {
     *(.text .stub .text.* .gnu.linkonce.t.*)

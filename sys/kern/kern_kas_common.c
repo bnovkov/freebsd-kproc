@@ -23,14 +23,12 @@ static int __kas_check_td_exec_right(void){
 
 int __kas_kirc_call(int component_desc){
   __kas_enter();
-  __kas_activate_component(component_desc);
-  __kas_leave();
+  //__kas_activate_component(component_desc);
 
   // func(args)
 
   __kas_enter();
-  __kas_deactivate_component(component_desc);
-  __kas_leave();
+  // __kas_deactivate_component(component_desc);
   return 0;
 }
 
@@ -71,41 +69,45 @@ int __kas_kirc_call_nolookup(void){
 
 
 /*
- * Maps all subsystems to avoid page faults during kernel startup.
+ * Maps all subsystems during kernel startup.
  */
-static int kas_init(void){
-  // TODO: kreiranje zasebnog submapa
-  // TODO: alokacije PCPU stackova
 
-  extern int __kas_vmkern_text_start;
-  extern int __kas_vmkern_text_end;
+static int kas_init(void* data){
+  // TODO: alokacije PCPU stackova
   extern int __kas_vmkern_data_start;
   extern int __kas_vmkern_data_end;
-  extern int __kas_vmkern_rodata_start;
+  extern int __kas_vmkern_text_start;
+  extern int __kas_vmkern_text_end;
+   extern int __kas_vmkern_rodata_start;
   extern int __kas_vmkern_rodata_end;
-  extern int __kas_vmkern_bss_start;
-  extern int __kas_vmkern_bss_end;
+  //  extern int __kas_vmkern_bss_start;
+  //extern int __kas_vmkern_bss_end;
 
   kas_protect((vm_offset_t)&__kas_vmkern_text_start, (vm_offset_t)&__kas_vmkern_text_end,
-              VM_PROT_EXECUTE | VM_PROT_READ, 0);
+              VM_PROT_EXECUTE | VM_PROT_READ , 0);
 	kas_protect((vm_offset_t)&__kas_vmkern_data_start, (vm_offset_t)&__kas_vmkern_data_end,
-              VM_PROT_READ | VM_PROT_WRITE, 0);
+            VM_PROT_READ | VM_PROT_WRITE, 0);
 	kas_protect((vm_offset_t)&__kas_vmkern_rodata_start, (vm_offset_t)&__kas_vmkern_rodata_end, VM_PROT_READ, 0);
-	kas_protect((vm_offset_t)&__kas_vmkern_bss_start, (vm_offset_t)&__kas_vmkern_bss_end,
-              VM_PROT_READ | VM_PROT_WRITE, 0);
+	//kas_protect((vm_offset_t)&__kas_vmkern_bss_start, round_page((vm_offset_t)&__kas_vmkern_bss_end),
+  //          VM_PROT_READ | VM_PROT_WRITE, 0);
 
   __kas_generated_init(NULL);
 
+  extern int kas__no_components;
+  extern struct kas_component kas__components[];
+
+
+  for(int i=0; i<kas__no_components; i++){
+    struct kas_component_layout *layout = &kas__components[i].layout;
+    struct kas_component_md *md = &kas__components[i].md;
+
+    md->start_pte_idx = pmap_pte_index(layout->base);
+    md->end_pte_idx = pmap_pte_index(layout->bss_end);
+  }
+
   return 0;
 }
-
-
-// TODO: maknuti ovo u md dio
-static void kas_smp_init(void){
-  kas_smp_md_init();
-  return;
-}
-
+extern struct kas_priv_data priv_data;
 
 SYSINIT(kas_boot, SI_SUB_KAS_BOOT, SI_ORDER_FIRST, kas_init, NULL);
-SYSINIT(kas_smp, SI_SUB_KAS_SMP, SI_ORDER_FIRST, kas_smp_init, NULL);
+SYSINIT(kas_smp, SI_SUB_KAS_SMP, SI_ORDER_FIRST, kas_smp_md_init, &priv_data.md_data);

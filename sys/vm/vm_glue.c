@@ -441,6 +441,10 @@ vm_thread_stack_back(struct domainset *ds, vm_offset_t ks, vm_page_t ma[],
 	VM_OBJECT_WUNLOCK(kstack_object);
 }
 
+__inline vm_offset_t vm_pcpu_kas_stack_create(void){
+  return vm_thread_stack_create(DOMAINSET_PREF(PCPU_GET(domain)), 4);
+}
+
 static int
 kstack_import(void *arg, void **store, int cnt, int domain, int flags)
 {

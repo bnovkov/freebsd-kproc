@@ -21,18 +21,6 @@ int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
 #define  KAS_PROT_EXEC  0x4
 #define  KAS_PROT_RW    (KAS_PROT_READ | KAS_PROT_WRITE)
 
-
-
-/*
- * BST node
- */
-struct kas_region_node {
-  struct kas_region_node *left;
-  struct kas_region_node *right;
-
-  u_int prot;
-};
-
 /*
  * Main kernel address space descriptor.
  */
@@ -56,22 +44,18 @@ struct kas_component {
   const char name[32];
 
   struct kas_component_layout layout;
-
-  struct kas_md md;
+  struct kas_component_md md;
 };
 
 
+struct kas_priv_data {
+  struct kas_md md_data;
+};
 
 int kas_protect(vm_offset_t start, vm_offset_t end, vm_prot_t prot, int flags);
 
-/*
- * Protection mechanism interface definition
- */
-int __kas_activate_component(int component_desc);
-int __kas_deactivate_component(int component_desc);
 /* Helper functions used for "privilege switching", i.e. entering/leaving the kas kernel. */
 void __kas_enter(void);
-void __kas_leave(void);
 
 /*
  * Machine-dependent protection mechanism interface
@@ -79,7 +63,6 @@ void __kas_leave(void);
 int  __kas_md_activate_component(int component_desc);
 int  __kas_md_deactivate_component(int component_desc);
 void __kas_md_enter(void);
-void __kas_md_leave(void);
 
 
 #endif /* _KAS */

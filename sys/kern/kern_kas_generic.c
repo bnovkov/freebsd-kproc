@@ -26,8 +26,5 @@ int __weak_symbol __kas_md_deactivate_component(int component_desc){
 void __weak_symbol __kas_md_enter(void){
   return;
 }
-void __weak_symbol __kas_md_leave(void){
-  return;
-}
 
 

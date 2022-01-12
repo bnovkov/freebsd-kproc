@@ -19,22 +19,43 @@
 
 #define _KAS
 #include <sys/kas.h>
+#include <machine/kas.h>
 
 extern int kas__no_components;
 extern struct kas_component kas__components[];
 
+
+struct kas_priv_data priv_data;
+
+
 /*
  * KAS kernel routines.
  * Only accessible through __kas_enter.
- * These are executed on a preallocated, private per-thread stack which is loaded by __kas_enter.
+ * These are executed on a preallocated, private per-cpu stack which is loaded by __kas_enter.
  */
-int __kas_activate_component(int component_desc){
+int __kas_md_activate_component(int component_desc){
   KASSERT(component_desc < kas__no_components, ("kas_activate_component: invalid component descriptor"));
+  struct kas_component *c = &kas__components[component_desc];
+  vm_offset_t cpu_ptpg = priv_data.md_data.pcpu_kas_ptpg[curcpu];
+
+
+  for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
+    ((pt_entry_t *)cpu_ptpg)[i] &= ~X86_PG_U;
+  }
+
   return 0;
 }
 
-int __kas_deactivate_component(int component_desc){
+int __kas_md_deactivate_component(int component_desc){
   KASSERT(component_desc < kas__no_components, ("kas_activate_component: invalid component descriptor"));
+  struct kas_component *c = &kas__components[component_desc];
+  vm_offset_t cpu_ptpg = priv_data.md_data.pcpu_kas_ptpg[curcpu];
+
+
+  for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
+    ((pt_entry_t *)cpu_ptpg)[i] |= X86_PG_U;
+  }
+
   return 0;
 }
 
@@ -44,22 +65,12 @@ int __kas_deactivate_component(int component_desc){
  * KAS kernel entrypoints.
  */
 void __kas_enter(void){
-  //  intr_disable();
+  register_t reg =  intr_disable();
 
   __kas_md_enter();
   // invoke the underlying mechanism to allow RWX on kas pages
   // load kas private stack
+
+  intr_restore(reg);
   return;
 }
-
-void __kas_leave(void){
-  // restore previous user stack
-  // invoke the underlying mechanism to revoke RWX on kas pages
-
-  __kas_md_leave();
-
-  //  intr_enable();
-  return;
-}
-
-

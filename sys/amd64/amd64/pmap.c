@@ -11949,6 +11949,10 @@ DB_SHOW_COMMAND(ptpages, pmap_ptpages)
 }
 #endif
 
+//extern int __kas_vmkern_data_start;
+//extern int __kas_vmkern_data_end;
+
+
 /*
  * Initializes the KAS subsystem for SMP machines.
  * Each CPU gets a completely separate pagetable hierarchy
@@ -11959,10 +11963,10 @@ DB_SHOW_COMMAND(ptpages, pmap_ptpages)
  * now be simultaneously accessed on each core without the possibility
  * of accessing currently restricted (aka unmapped) regions.
  */
-void kas_smp_md_init(void){
-  extern int __kas_start;
-  extern int __kas_end;
+void kas_smp_md_init(void* d){
 
+  extern int __kas_start;
+  struct kas_md *data = (struct kas_md *)d;
   vm_offset_t cur_kcr3_vaddr = PHYS_TO_DMAP(kernel_pmap->pm_cr3);
   vm_offset_t kas_start_vaddr = (vm_offset_t)&__kas_start;
   // vm_offset_t kas_end_vaddr = (vm_offset_t)&__kas_end;
@@ -11975,9 +11979,9 @@ void kas_smp_md_init(void){
   vm_paddr_t kas_start_pd_pg_paddr = (*kas_start_pdpe & ~PAGE_MASK);
   vm_paddr_t kas_start_pt_pg_paddr = (*kas_start_pde & ~PAGE_MASK);
 
-  int kas_pml4e_idx = pmap_pml4e_index(kas_start_vaddr);
-  int kas_pdpe_idx = pmap_pdpe_index(kas_start_vaddr);
-  int kas_pde_idx = pmap_pde_index(kas_start_vaddr);
+  vm_pindex_t kas_pml4e_idx = pmap_pml4e_index(kas_start_vaddr);
+  vm_pindex_t kas_pdpe_idx = pmap_pdpe_index(kas_start_vaddr);
+  vm_pindex_t kas_pde_idx = pmap_pde_index(kas_start_vaddr);
 
   /* Allocate per-cpu top-level pagetables */
   /* Leave first CPU intact */
@@ -12012,9 +12016,24 @@ void kas_smp_md_init(void){
     ((pd_entry_t *)kas_pdpg_dmap_vaddr)[kas_pde_idx] = kas_ptpg->phys_addr | (*kas_start_pde & PAGE_MASK);
 
     struct pcpu *cur_pcpu = cpuid_to_pcpu[i];
-    KASSERT(cur_pcpu, ("invalid pcpu"));
+    KASSERT(cur_pcpu, ("kas_init: invalid pcpu"));
     cur_pcpu->pc_kcr3 = pcpu_kcr3->phys_addr;
     cur_pcpu->pc_ucr3 = -1;
-  }
 
+    /* Save pointer to new pagetable page */
+    data->pcpu_kas_ptpg[i] = kas_ptpg_dmap_vaddr;
+  }
+  /* Save pointer to original pagetable page */
+  data->pcpu_kas_ptpg[0] = PHYS_TO_DMAP(kas_start_pt_pg_paddr);
+
+
+  /*
+   * Allocate pcpu KAS kernel stack.
+   */
+  for(int i=0; i<mp_ncpus; i++){
+    vm_offset_t kas_stack_vaddr = vm_pcpu_kas_stack_create();
+    KASSERT(kas_stack_vaddr, ("kas_init: invalid pcpu"));
+
+    cpuid_to_pcpu[i]->pc_kas_stack = kas_stack_vaddr;
+  }
 }

@@ -195,7 +195,7 @@ struct pcpu {
 	uintptr_t	pc_dynamic;		/* Dynamic per-cpu data area */
 	uint64_t	pc_early_dummy_counter;	/* Startup time counter(9) */
 	uintptr_t	pc_zpcpu_offset;	/* Offset into zpcpu allocs */
-
+  vm_offset_t pc_kas_stack; /* CPU KAS kernel stack. */
 	/*
 	 * Keep MD fields last, so that CPU-specific variations on a
 	 * single architecture don't result in offset variations of
