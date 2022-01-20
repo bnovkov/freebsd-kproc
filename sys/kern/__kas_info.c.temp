@@ -1,6 +1,7 @@
 #define _KAS
 
 #include <sys/kas.h>
+#include <sys/syscall.h>
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <vm/pmap.h>
@@ -18,6 +19,7 @@ struct kas_component kas__components[] = {
 
 {{ initializers }}
 
+struct kas_component *kas__syscall_components[SYS_MAXSYSCALL] = { 0 };  
 
 void __kas_generated_init(void *data){
    {% for line in initializer_invocations -%}

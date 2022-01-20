@@ -40,8 +40,13 @@ struct kas_component_layout {
 
 struct kas_component {
   int idx;
-  enum ComponentType type;
   const char name[32];
+
+  enum ComponentType type;
+
+  union  {
+    int syscall_num;
+  } type_data;
 
   struct kas_component_layout layout;
   struct kas_component_md md;
@@ -49,20 +54,17 @@ struct kas_component {
 
 
 struct kas_priv_data {
+  vm_offset_t caller_stack[MAXCPU];
+
   struct kas_md md_data;
 };
 
 int kas_protect(vm_offset_t start, vm_offset_t end, vm_prot_t prot, int flags);
 
-/* Helper functions used for "privilege switching", i.e. entering/leaving the kas kernel. */
-void __kas_enter(void);
-
 /*
  * Machine-dependent protection mechanism interface
  */
-int  __kas_md_activate_component(int component_desc);
-int  __kas_md_deactivate_component(int component_desc);
-void __kas_md_enter(void);
+void  __kas_activate_syscall(int syscall_num);
 
 
 #endif /* _KAS */

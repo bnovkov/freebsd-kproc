@@ -11966,10 +11966,9 @@ DB_SHOW_COMMAND(ptpages, pmap_ptpages)
 void kas_smp_md_init(void* d){
 
   extern int __kas_start;
-  struct kas_md *data = (struct kas_md *)d;
+  //  struct kas_md *data = (struct kas_md *)d;
   vm_offset_t cur_kcr3_vaddr = PHYS_TO_DMAP(kernel_pmap->pm_cr3);
   vm_offset_t kas_start_vaddr = (vm_offset_t)&__kas_start;
-  // vm_offset_t kas_end_vaddr = (vm_offset_t)&__kas_end;
 
   pml4_entry_t *kas_start_pml4e = pmap_pml4e(kernel_pmap, kas_start_vaddr);
   pdp_entry_t *kas_start_pdpe = pmap_pml4e_to_pdpe(kas_start_pml4e, kas_start_vaddr);
@@ -12021,10 +12020,10 @@ void kas_smp_md_init(void* d){
     cur_pcpu->pc_ucr3 = -1;
 
     /* Save pointer to new pagetable page */
-    data->pcpu_kas_ptpg[i] = kas_ptpg_dmap_vaddr;
+    cur_pcpu->pc_kas_ptpg = kas_ptpg_dmap_vaddr;
   }
   /* Save pointer to original pagetable page */
-  data->pcpu_kas_ptpg[0] = PHYS_TO_DMAP(kas_start_pt_pg_paddr);
+  cpuid_to_pcpu[0]->pc_kas_ptpg = PHYS_TO_DMAP(kas_start_pt_pg_paddr);
 
 
   /*

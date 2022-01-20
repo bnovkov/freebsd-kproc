@@ -196,6 +196,8 @@ struct pcpu {
 	uint64_t	pc_early_dummy_counter;	/* Startup time counter(9) */
 	uintptr_t	pc_zpcpu_offset;	/* Offset into zpcpu allocs */
   vm_offset_t pc_kas_stack; /* CPU KAS kernel stack. */
+  vm_offset_t pc_kas_ptpg; /* KAS component ptpg. */
+
 	/*
 	 * Keep MD fields last, so that CPU-specific variations on a
 	 * single architecture don't result in offset variations of

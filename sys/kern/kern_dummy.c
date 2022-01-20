@@ -19,11 +19,5 @@ int sys_dummy(struct thread *td, struct dummy_args *uap){
 
   free(a, M_TEMP);
 
-  __kas_kirc_call(0);
-
-  extern struct kas_priv_data priv_data;
-
-  priv_data.md_data.pcpu_kas_ptpg[0] = 0;
-
   return (0);
 }

@@ -1,5 +1,6 @@
 #define _KAS
 
+#include <sys/syscall.h>
 #include <sys/kas.h>
 #include <sys/types.h>
 #include <sys/param.h>
@@ -14,58 +15,11 @@
 #include <sys/smp.h>
 #include <machine/kas.h>
 
-//#include "__kas_info.c"
-// Check if curthread can exec target subsystem
-static int __kas_check_td_exec_right(void){
-  return 1;
-}
-
 
 int __kas_kirc_call(int component_desc){
-  __kas_enter();
-  //__kas_activate_component(component_desc);
-
-  // func(args)
-
-  __kas_enter();
   // __kas_deactivate_component(component_desc);
   return 0;
 }
-
-/*
-int __kas_kirc_call_nolookup(void){
-  __kas_activate_priv_ctx();
-
-  // quickly check if the thread is allowed to exec target subsystem
-  // TODO: stavit ovo kao kassert
-  if(__kas_check_td_exec_right()){
-    // panic or return error
-    // TODO: make this behaviour a configurable policy
-    return -1;
-  }
-
-  // check if target function is part of target subsystem
-  // TODO: stavit ovo kao kassert
-  if(__kas_check_func_in_subsys()){
-    // panic or return error
-    // TODO: make this behaviour a configurable policy
-    return -1;
-  }
-
-  // activate target ctx
-  // switch to old stack
-  // Call the target function
-  // TODO: __kas_deactivate_priv_ctx();?
-  // func_call()
-  // TODO: __kas_activate_priv_ctx();?
-  // switch to priv_stack
-  // deactivate target ctx
-  __kas_deactivate_priv_ctx();
-
-  return 0;
-}
-
-*/
 
 
 /*
@@ -95,14 +49,21 @@ static int kas_init(void* data){
 
   extern int kas__no_components;
   extern struct kas_component kas__components[];
+  extern struct kas_component *kas__syscall_components[];
 
 
   for(int i=0; i<kas__no_components; i++){
+    struct kas_component *c = &kas__components[i];
     struct kas_component_layout *layout = &kas__components[i].layout;
     struct kas_component_md *md = &kas__components[i].md;
 
     md->start_pte_idx = pmap_pte_index(layout->base);
     md->end_pte_idx = pmap_pte_index(layout->bss_end);
+
+    if(c->type == SYSCALL){
+      KASSERT(c->type_data.syscall_num > 0 && c->type_data.syscall_num < SYS_MAXSYSCALL, ("kas_init: invalid syscall number"));
+      kas__syscall_components[c->type_data.syscall_num] = c;
+    }
   }
 
   return 0;

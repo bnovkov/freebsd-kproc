@@ -8,8 +8,8 @@ struct kas_md;
 void kas_smp_md_init(void* data);
 
 struct kas_md {
-  /* We limit ourselves to one PTPG for all systems for the POC */
-  vm_offset_t pcpu_kas_ptpg[MAXCPU];
+  vm_pindex_t kas_data_start_pte_idx;
+  vm_pindex_t kas_data_end_pte_idx;
 };
 
 struct kas_component_md {

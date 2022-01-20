@@ -442,7 +442,7 @@ vm_thread_stack_back(struct domainset *ds, vm_offset_t ks, vm_page_t ma[],
 }
 
 __inline vm_offset_t vm_pcpu_kas_stack_create(void){
-  return vm_thread_stack_create(DOMAINSET_PREF(PCPU_GET(domain)), 4);
+  return vm_thread_stack_create(DOMAINSET_PREF(PCPU_GET(domain)), KAS_STACK_PGS);
 }
 
 static int

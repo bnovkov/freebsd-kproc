@@ -301,4 +301,9 @@
  */
 #define MINIDUMP_PAGE_TRACKING	1
 
+/*
+ * Size of the pcpu private KAS stack (in pages).
+ */
+#define KAS_STACK_PGS 4
+
 #endif /* _MACHINE_VMPARAM_H_ */
