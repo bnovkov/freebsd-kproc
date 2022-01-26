@@ -10,6 +10,14 @@ int __kas_kirc_call(int); /* Used for indirect, function pointer calls */
 int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
 
 
+/*
+ * KAS kernel entrypoints.
+ */
+void __kas_activate_syscall(int syscall_num);
+void __kas_deactivate_syscall(int syscall_num);
+
+
+
 
 #if defined(_KAS)
 
@@ -60,12 +68,6 @@ struct kas_priv_data {
 };
 
 int kas_protect(vm_offset_t start, vm_offset_t end, vm_prot_t prot, int flags);
-
-/*
- * Machine-dependent protection mechanism interface
- */
-void  __kas_activate_syscall(int syscall_num);
-
 
 #endif /* _KAS */
 #endif /* _KERNEL */

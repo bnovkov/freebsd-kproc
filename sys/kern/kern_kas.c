@@ -58,20 +58,20 @@ static int __kas_deactivate_component(struct kas_component *c){
 
 static vm_offset_t __kas_load_stack(void){
   vm_offset_t caller_stack = 0;
-  vm_offset_t pcpu_stack = PCPU_GET(kas_stack);
-  pmap_protect(kernel_pmap, pcpu_stack, pcpu_stack + (PAGE_SIZE * KAS_STACK_PGS), VM_PROT_RW);
-
+  //  vm_offset_t pcpu_stack = PCPU_GET(kas_stack);
+ 
   // TODO: swap stack
   return caller_stack;
 }
 
 static void __kas_restore_stack(vm_offset_t caller_stack){
-  vm_offset_t pcpu_stack = PCPU_GET(kas_stack);
+  // vm_offset_t pcpu_stack = PCPU_GET(kas_stack);
 
   // TODO: restore_stack(caller_stack);
 
-  pmap_protect(kernel_pmap, pcpu_stack, pcpu_stack + (PAGE_SIZE * KAS_STACK_PGS), VM_PROT_NONE);
 
+
+  
   return;
 }
 
@@ -85,7 +85,7 @@ static void __kas_md_enter(void){
   vm_offset_t cpu_ptpg = PCPU_GET(kas_ptpg);
 
   /* Allow rw access to curcpu kas ptpg */
-  pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_RW);
+  //  pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_RW);
   
   /* Map data pages */
   for(vm_pindex_t i=priv_data.md_data.kas_data_start_pte_idx; i<priv_data.md_data.kas_data_end_pte_idx; i++){
@@ -107,7 +107,7 @@ static void __kas_md_leave(void){
     ((pt_entry_t *)cpu_ptpg)[i] |= X86_PG_U;
   }
   /* Unmap curcpu kas ptpg */
-  pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_NONE);
+  // pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_READ);
 
   __kas_restore_stack(caller_stack);
 }
@@ -118,8 +118,8 @@ static void __kas_md_leave(void){
 
 void __kas_activate_syscall(int syscall_num){
   // TODO: kassert
-  register_t reg =  intr_disable();
 
+  register_t reg =  intr_disable();
   __kas_md_enter();
 
   struct kas_component *c = kas__syscall_components[syscall_num];
@@ -132,4 +132,26 @@ void __kas_activate_syscall(int syscall_num){
  exit:
   __kas_md_leave();
   intr_restore(reg);
+
+}
+
+void __kas_deactivate_syscall(int syscall_num){
+  // TODO: kassert
+
+  __kas_md_enter();
+
+  register_t reg =  intr_disable();
+
+  struct kas_component *c = kas__syscall_components[syscall_num];
+  if(c == NULL){
+    goto exit;
+  }
+
+  __kas_deactivate_component(c);
+
+ exit:
+  intr_restore(reg);
+
+  __kas_md_leave();
+
 }

@@ -11984,7 +11984,7 @@ void kas_smp_md_init(void* d){
 
   /* Allocate per-cpu top-level pagetables */
   /* Leave first CPU intact */
-  for(int i=1; i<mp_ncpus-1; i++){
+  for(int i=1; i<mp_ncpus; i++){
     vm_page_t pcpu_kcr3 = vm_page_alloc_noobj(VM_ALLOC_WIRED);
     vm_page_t kas_pdppg = vm_page_alloc_noobj(VM_ALLOC_WIRED);
     vm_page_t kas_pdpg = vm_page_alloc_noobj(VM_ALLOC_WIRED);
@@ -12001,7 +12001,7 @@ void kas_smp_md_init(void* d){
     pmap_enter(kernel_pmap, pcpu_kcr3_dmap_vaddr, pcpu_kcr3, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
     pmap_enter(kernel_pmap, kas_pdppg_dmap_vaddr, kas_pdpg, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
     pmap_enter(kernel_pmap, kas_pdpg_dmap_vaddr, kas_pdppg, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
-    pmap_enter(kernel_pmap, kas_ptpg_dmap_vaddr, kas_ptpg, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
+    pmap_enter(kernel_pmap, kas_ptpg_dmap_vaddr, kas_ptpg, VM_PROT_RW, PMAP_ENTER_WIRED | VM_PROT_WRITE, 0);
 
     /* Copy contents of existing pagetable pages */
     bcopy((void *)cur_kcr3_vaddr, (void *)pcpu_kcr3_dmap_vaddr, PAGE_SIZE);

@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/capsicum.h>
 #include <sys/ktr.h>
 #include <sys/vmmeter.h>
+#include <sys/kas.h>
 #ifdef KTRACE
 #include <sys/uio.h>
 #include <sys/ktrace.h>
@@ -129,6 +130,9 @@ syscallenter(struct thread *td)
 	}
 #endif
 
+  /* Allow execution of target syscall */
+   __kas_activate_syscall(sa->code);
+
 	/*
 	 * Fetch fast sigblock value at the time of syscall entry to
 	 * handle sleepqueue primitives which might call cursig().
@@ -199,6 +203,9 @@ syscallenter(struct thread *td)
 	    (uintptr_t)td, "pid:%d", td->td_proc->p_pid, "error:%d", error,
 	    "retval0:%#lx", td->td_retval[0], "retval1:%#lx",
 	    td->td_retval[1]);
+
+  __kas_deactivate_syscall(sa->code);
+
 	if (__predict_false(traced)) {
 		PROC_LOCK(p);
 		td->td_dbgflags &= ~TDB_SCE;
