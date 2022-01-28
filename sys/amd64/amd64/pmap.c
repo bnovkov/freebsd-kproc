@@ -12033,6 +12033,7 @@ void kas_smp_md_init(void* d){
     vm_offset_t kas_stack_vaddr = vm_pcpu_kas_stack_create();
     KASSERT(kas_stack_vaddr, ("kas_init: invalid pcpu"));
 
-    cpuid_to_pcpu[i]->pc_kas_stack = kas_stack_vaddr;
+    /* Save stack top */
+    cpuid_to_pcpu[i]->pc_kas_stack = kas_stack_vaddr + (KAS_STACK_PGS * PAGE_SIZE);
   }
 }

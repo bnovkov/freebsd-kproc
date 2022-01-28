@@ -16,10 +16,6 @@
 #include <machine/kas.h>
 
 
-int __kas_kirc_call(int component_desc){
-  // __kas_deactivate_component(component_desc);
-  return 0;
-}
 
 
 /*

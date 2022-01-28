@@ -5,17 +5,20 @@
 
 #if defined(_KERNEL)
 
+/*
+ * Nested kernel opcodes.
+ */
+#define KAS_ACTIVATE_SYSCALL 0
+#define KAS_DEACTIVATE_SYSCALL 1
+
 void __kas_generated_init(void *data);
-int __kas_kirc_call(int); /* Used for indirect, function pointer calls */
-int __kas_kirc_call_nolookup(void); /* Used for known symbol calls */
-
-
 /*
  * KAS kernel entrypoints.
  */
-void __kas_activate_syscall(int syscall_num);
-void __kas_deactivate_syscall(int syscall_num);
+void __kas_syscall(register_t opcode, register_t arg1);
 
+#define __kas_activate_syscall(syscall_num) __kas_syscall(KAS_ACTIVATE_SYSCALL, (syscall_num))
+#define __kas_deactivate_syscall(syscall_num) __kas_syscall(KAS_DEACTIVATE_SYSCALL, (syscall_num))
 
 
 
@@ -28,6 +31,11 @@ void __kas_deactivate_syscall(int syscall_num);
 #define  KAS_PROT_WRITE 0x2
 #define  KAS_PROT_EXEC  0x4
 #define  KAS_PROT_RW    (KAS_PROT_READ | KAS_PROT_WRITE)
+
+void kas_trampoline(int opcode, uint64_t arg1);
+vm_offset_t __kas_md_enter(void);
+void __kas_md_leave(void);
+
 
 /*
  * Main kernel address space descriptor.

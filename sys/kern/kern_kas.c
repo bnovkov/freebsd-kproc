@@ -56,32 +56,14 @@ static int __kas_deactivate_component(struct kas_component *c){
   return 0;
 }
 
-static vm_offset_t __kas_load_stack(void){
-  vm_offset_t caller_stack = 0;
-  //  vm_offset_t pcpu_stack = PCPU_GET(kas_stack);
- 
-  // TODO: swap stack
-  return caller_stack;
-}
-
-static void __kas_restore_stack(vm_offset_t caller_stack){
-  // vm_offset_t pcpu_stack = PCPU_GET(kas_stack);
-
-  // TODO: restore_stack(caller_stack);
-
-
-
-  
-  return;
-}
-
 /*
  * Performs a "privilege switch" to the KAS kernel.
  * Loads the private PCPU stack and
  * allows read access on KAS data pages.
+ *
+ * Returns ptr to curcpu thread context saving block.
  */
-static void __kas_md_enter(void){
-  vm_offset_t old_stack = __kas_load_stack();
+vm_offset_t __kas_md_enter(void){
   vm_offset_t cpu_ptpg = PCPU_GET(kas_ptpg);
 
   /* Allow rw access to curcpu kas ptpg */
@@ -91,15 +73,16 @@ static void __kas_md_enter(void){
   for(vm_pindex_t i=priv_data.md_data.kas_data_start_pte_idx; i<priv_data.md_data.kas_data_end_pte_idx; i++){
     ((pt_entry_t *)cpu_ptpg)[i] &= ~X86_PG_U;
   }
-  priv_data.caller_stack[curcpu] = old_stack;
+
+  return (vm_offset_t)&priv_data.md_data.td_ctx[curcpu];
 }
 
 /*
  * Called upon leaving the KAS kernel.
  * Performs the opposite of __kas_md_enter.
  */
-static void __kas_md_leave(void){
-  vm_offset_t caller_stack = priv_data.caller_stack[curcpu];
+void __kas_md_leave(void){
+  // TODO: map ctx saving bss as RDONLY when leaving the kernel so that the context may be restored
   vm_offset_t cpu_ptpg = PCPU_GET(kas_ptpg);
 
   /* Unmap data pages */
@@ -108,50 +91,55 @@ static void __kas_md_leave(void){
   }
   /* Unmap curcpu kas ptpg */
   // pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_READ);
-
-  __kas_restore_stack(caller_stack);
 }
 
-/*
- * KAS kernel entrypoints.
- */
 
-void __kas_activate_syscall(int syscall_num){
+static void __activate_syscall(int syscall_num){
   // TODO: kassert
-
-  register_t reg =  intr_disable();
-  __kas_md_enter();
-
+  //  register_t reg =  intr_disable();
+  //__kas_md_enter();
   struct kas_component *c = kas__syscall_components[syscall_num];
   if(c == NULL){
-    goto exit;
+    return;
   }
 
   __kas_activate_component(c);
-
- exit:
-  __kas_md_leave();
-  intr_restore(reg);
-
 }
 
-void __kas_deactivate_syscall(int syscall_num){
+static void __deactivate_syscall(int syscall_num){
   // TODO: kassert
 
-  __kas_md_enter();
+  // __kas_md_enter();
 
-  register_t reg =  intr_disable();
+  //  register_t reg =  intr_disable();
 
   struct kas_component *c = kas__syscall_components[syscall_num];
   if(c == NULL){
-    goto exit;
+    return;
   }
 
   __kas_deactivate_component(c);
 
- exit:
-  intr_restore(reg);
+  //exit:
+  //intr_restore(reg);
 
-  __kas_md_leave();
+  //__kas_md_leave();
 
+}
+
+/*
+ * KAS kernel entrypoint.
+ */
+
+void kas_trampoline(int opcode, uint64_t arg1){
+  switch(opcode){
+  case KAS_ACTIVATE_SYSCALL:
+    __activate_syscall(arg1);
+    break;
+  case KAS_DEACTIVATE_SYSCALL:
+    __deactivate_syscall(arg1);
+    break;
+  default:
+    break;
+  }
 }
