@@ -11967,12 +11967,21 @@ void kas_smp_md_init(void* d){
 
   extern int __kas_start;
   //  struct kas_md *data = (struct kas_md *)d;
+
+
   vm_offset_t cur_kcr3_vaddr = PHYS_TO_DMAP(kernel_pmap->pm_cr3);
   vm_offset_t kas_start_vaddr = (vm_offset_t)&__kas_start;
 
   pml4_entry_t *kas_start_pml4e = pmap_pml4e(kernel_pmap, kas_start_vaddr);
   pdp_entry_t *kas_start_pdpe = pmap_pml4e_to_pdpe(kas_start_pml4e, kas_start_vaddr);
   pd_entry_t *kas_start_pde = pmap_pdpe_to_pde(kas_start_pdpe, kas_start_vaddr);
+
+  PMAP_LOCK(kernel_pmap);
+  int error = pmap_demote_pde(kernel_pmap, kas_start_pde, kas_start_vaddr);
+  KASSERT(error == TRUE, ("unable to demote 2MB mapping"));
+
+  kas_start_pde = pmap_pdpe_to_pde(kas_start_pdpe, kas_start_vaddr);
+
 
   vm_paddr_t kas_start_pdp_pg_paddr = (*kas_start_pml4e & ~PAGE_MASK);
   vm_paddr_t kas_start_pd_pg_paddr = (*kas_start_pdpe & ~PAGE_MASK);
@@ -11996,12 +12005,14 @@ void kas_smp_md_init(void* d){
     vm_offset_t kas_pdppg_dmap_vaddr = PHYS_TO_DMAP((vm_paddr_t)kas_pdppg->phys_addr);
     vm_offset_t kas_pdpg_dmap_vaddr = PHYS_TO_DMAP((vm_paddr_t)kas_pdpg->phys_addr);
     vm_offset_t kas_ptpg_dmap_vaddr = PHYS_TO_DMAP((vm_paddr_t)kas_ptpg->phys_addr);
+    PMAP_UNLOCK(kernel_pmap);
 
     /* Insert to dmap */
     pmap_enter(kernel_pmap, pcpu_kcr3_dmap_vaddr, pcpu_kcr3, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
     pmap_enter(kernel_pmap, kas_pdppg_dmap_vaddr, kas_pdpg, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
     pmap_enter(kernel_pmap, kas_pdpg_dmap_vaddr, kas_pdppg, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
     pmap_enter(kernel_pmap, kas_ptpg_dmap_vaddr, kas_ptpg, VM_PROT_RW, PMAP_ENTER_WIRED | VM_PROT_WRITE, 0);
+    PMAP_LOCK(kernel_pmap);
 
     /* Copy contents of existing pagetable pages */
     bcopy((void *)cur_kcr3_vaddr, (void *)pcpu_kcr3_dmap_vaddr, PAGE_SIZE);
@@ -12024,6 +12035,8 @@ void kas_smp_md_init(void* d){
   }
   /* Save pointer to original pagetable page */
   cpuid_to_pcpu[0]->pc_kas_ptpg = PHYS_TO_DMAP(kas_start_pt_pg_paddr);
+
+  PMAP_UNLOCK(kernel_pmap);
 
 
   /*

@@ -20,6 +20,7 @@
 #define _KAS
 #include <sys/kas.h>
 #include <machine/kas.h>
+#include <machine/cpufunc.h>
 
 extern int kas__no_components;
 extern struct kas_component kas__components[];
@@ -33,13 +34,13 @@ struct kas_priv_data priv_data;
  * Only accessible through __kas_enter.
  * These are executed on a preallocated, private per-cpu stack which is loaded by __kas_enter.
  */
-
 static int __kas_activate_component(struct kas_component *c){
   vm_offset_t cpu_ptpg = PCPU_GET(kas_ptpg);
 
 
   for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
-    ((pt_entry_t *)cpu_ptpg)[i] &= ~X86_PG_U;
+    ((pt_entry_t *)cpu_ptpg)[i] |= X86_PG_V;
+    invlpg(c->layout.base + (c->md.end_pte_idx - i) * PAGE_SIZE);
   }
 
   return 0;
@@ -50,7 +51,8 @@ static int __kas_deactivate_component(struct kas_component *c){
 
 
   for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
-    ((pt_entry_t *)cpu_ptpg)[i] |= X86_PG_U;
+    ((pt_entry_t *)cpu_ptpg)[i] &= ~X86_PG_V;
+    invlpg(c->layout.base + (c->md.end_pte_idx - i) * PAGE_SIZE);
   }
 
   return 0;
@@ -64,15 +66,14 @@ static int __kas_deactivate_component(struct kas_component *c){
  * Returns ptr to curcpu thread context saving block.
  */
 vm_offset_t __kas_md_enter(void){
-  vm_offset_t cpu_ptpg = PCPU_GET(kas_ptpg);
 
   /* Allow rw access to curcpu kas ptpg */
   //  pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_RW);
-  
+
   /* Map data pages */
-  for(vm_pindex_t i=priv_data.md_data.kas_data_start_pte_idx; i<priv_data.md_data.kas_data_end_pte_idx; i++){
-    ((pt_entry_t *)cpu_ptpg)[i] &= ~X86_PG_U;
-  }
+  //for(vm_pindex_t i=priv_data.md_data.kas_data_start_pte_idx; i<priv_data.md_data.kas_data_end_pte_idx; i++){
+  //  ((pt_entry_t *)cpu_ptpg)[i] &= ~X86_PG_U;
+  //}
 
   return (vm_offset_t)&priv_data.md_data.td_ctx[curcpu];
 }
@@ -83,21 +84,19 @@ vm_offset_t __kas_md_enter(void){
  */
 void __kas_md_leave(void){
   // TODO: map ctx saving bss as RDONLY when leaving the kernel so that the context may be restored
-  vm_offset_t cpu_ptpg = PCPU_GET(kas_ptpg);
+  //vm_offset_t cpu_ptpg = PCPU_GET(kas_ptpg);
 
   /* Unmap data pages */
-  for(vm_pindex_t i=priv_data.md_data.kas_data_start_pte_idx; i<priv_data.md_data.kas_data_end_pte_idx; i++){
-    ((pt_entry_t *)cpu_ptpg)[i] |= X86_PG_U;
-  }
+  //for(vm_pindex_t i=priv_data.md_data.kas_data_start_pte_idx; i<priv_data.md_data.kas_data_end_pte_idx; i++){
+  //  ((pt_entry_t *)cpu_ptpg)[i] |= X86_PG_U;
+  //}
   /* Unmap curcpu kas ptpg */
   // pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_READ);
 }
 
 
 static void __activate_syscall(int syscall_num){
-  // TODO: kassert
-  //  register_t reg =  intr_disable();
-  //__kas_md_enter();
+
   struct kas_component *c = kas__syscall_components[syscall_num];
   if(c == NULL){
     return;
@@ -107,11 +106,6 @@ static void __activate_syscall(int syscall_num){
 }
 
 static void __deactivate_syscall(int syscall_num){
-  // TODO: kassert
-
-  // __kas_md_enter();
-
-  //  register_t reg =  intr_disable();
 
   struct kas_component *c = kas__syscall_components[syscall_num];
   if(c == NULL){
@@ -119,12 +113,6 @@ static void __deactivate_syscall(int syscall_num){
   }
 
   __kas_deactivate_component(c);
-
-  //exit:
-  //intr_restore(reg);
-
-  //__kas_md_leave();
-
 }
 
 /*

@@ -131,7 +131,7 @@ syscallenter(struct thread *td)
 #endif
 
   /* Allow execution of target syscall */
-   __kas_activate_syscall(sa->code);
+  __kas_activate_syscall(sa->code);
 
 	/*
 	 * Fetch fast sigblock value at the time of syscall entry to
@@ -204,7 +204,7 @@ syscallenter(struct thread *td)
 	    "retval0:%#lx", td->td_retval[0], "retval1:%#lx",
 	    td->td_retval[1]);
 
-  __kas_deactivate_syscall(sa->code);
+   __kas_deactivate_syscall(sa->code);
 
 	if (__predict_false(traced)) {
 		PROC_LOCK(p);

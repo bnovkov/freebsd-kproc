@@ -426,4 +426,5 @@ MIASM =  \
 	fspacectl.o \
 	sched_getcpu.o \
 	swapoff.o \
-	dummy.o
+	dummy.o \
+	dummy2.o

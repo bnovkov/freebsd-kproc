@@ -590,4 +590,5 @@ const char *syscallnames[] = {
 	"sched_getcpu",			/* 581 = sched_getcpu */
 	"swapoff",			/* 582 = swapoff */
 	"dummy",			/* 583 = dummy */
+	"dummy2",			/* 584 = dummy2 */
 };

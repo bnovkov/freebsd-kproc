@@ -1858,6 +1858,9 @@ struct swapoff_args {
 struct dummy_args {
 	register_t dummy;
 };
+struct dummy2_args {
+	register_t dummy;
+};
 int	sys_exit(struct thread *, struct exit_args *);
 int	sys_fork(struct thread *, struct fork_args *);
 int	sys_read(struct thread *, struct read_args *);
@@ -2254,6 +2257,7 @@ int	sys_fspacectl(struct thread *, struct fspacectl_args *);
 int	sys_sched_getcpu(struct thread *, struct sched_getcpu_args *);
 int	sys_swapoff(struct thread *, struct swapoff_args *);
 int	sys_dummy(struct thread *, struct dummy_args *);
+int	sys_dummy2(struct thread *, struct dummy2_args *);
 
 #ifdef COMPAT_43
 
@@ -3224,6 +3228,7 @@ int	freebsd13_swapoff(struct thread *, struct freebsd13_swapoff_args *);
 #define	SYS_AUE_sched_getcpu	AUE_NULL
 #define	SYS_AUE_swapoff	AUE_SWAPOFF
 #define	SYS_AUE_dummy	AUE_NULL
+#define	SYS_AUE_dummy2	AUE_NULL
 
 #undef PAD_
 #undef PADL_

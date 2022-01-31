@@ -24,8 +24,8 @@ ENTRY(__kas_syscall)
   cli
   call __kas_md_enter
 
-  popq %rdi
   popq %rsi
+  popq %rdi
 
   // save ctx to kas private data
 	movq	%rdx,(%rax)

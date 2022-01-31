@@ -521,4 +521,5 @@
 #define	SYS_sched_getcpu	581
 #define	SYS_swapoff	582
 #define	SYS_dummy	583
-#define	SYS_MAXSYSCALL	584
+#define	SYS_dummy2	584
+#define	SYS_MAXSYSCALL	585

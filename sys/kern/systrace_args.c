@@ -3422,6 +3422,11 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 0;
 		break;
 	}
+	/* dummy2 */
+	case 584: {
+		*n_args = 0;
+		break;
+	}
 	default:
 		*n_args = 0;
 		break;
@@ -9142,6 +9147,9 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	/* dummy */
 	case 583:
 		break;
+	/* dummy2 */
+	case 584:
+		break;
 	default:
 		break;
 	};
@@ -11097,6 +11105,8 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* dummy */
 	case 583:
+	/* dummy2 */
+	case 584:
 	default:
 		break;
 	};

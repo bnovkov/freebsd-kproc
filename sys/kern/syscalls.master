@@ -3310,6 +3310,10 @@
 583     AUE_NULL        STD  {
                 int dummy(void);
         }
+
+584     AUE_NULL        STD  {
+                int dummy2(void);
+        }
 ; Please copy any additions and changes to the following compatability tables:
 ; sys/compat/freebsd32/syscalls.master
 ; vim: syntax=off

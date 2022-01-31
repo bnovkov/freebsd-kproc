@@ -52,14 +52,14 @@ SECTIONS
 
   . = ALIGN(4096);
   __kas_start = .;
+  INCLUDE /home/bojan/freebsd-src/sys/kas/kas.ldscript
     
   INCLUDE /usr/home/bojan/freebsd-src/sys/kas/gen/kas_components_dummy.ldscript
+  INCLUDE /usr/home/bojan/freebsd-src/sys/kas/gen/kas_components_dummyn.ldscript
   
 
-  INCLUDE /home/bojan/freebsd-src/sys/kas/kas.ldscript
   
   __kas_end = .; 
-
 
 
   .init           :
