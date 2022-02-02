@@ -130,7 +130,7 @@ enum sysinit_sub_id {
 	SI_SUB_EPOCH		= 0x2888000,	/* epoch subsystem */
 #ifdef EARLY_AP_STARTUP
 	SI_SUB_SMP		= 0x2900000,	/* start the APs*/
-  //  SI_SUB_KAS_SMP     = 0x2910000,	/* kernel address spaces SMP init */
+  SI_SUB_KAS_SMP_EARLY     = 0x2910000,	/* kernel address spaces early SMP init */
 #endif
 	SI_SUB_SOFTINTR		= 0x2A00000,	/* start soft interrupt thread */
 	SI_SUB_DEVFS		= 0x2F00000,	/* devfs ready for devices */
@@ -174,9 +174,10 @@ enum sysinit_sub_id {
 #ifndef EARLY_AP_STARTUP
 	SI_SUB_SMP		= 0xf000000,	/* start the APs*/
 #endif
-  SI_SUB_KAS_SMP     = 0xf010000,	/* kernel address spaces SMP init */
- 
 	SI_SUB_RACCTD		= 0xf100000,	/* start racctd*/
+
+  SI_SUB_KAS_SMP     = 0xf200000,	/* kernel address spaces SMP init */
+
 	SI_SUB_LAST		= 0xfffffff	/* final initialization */
 };
 

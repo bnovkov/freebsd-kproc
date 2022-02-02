@@ -11951,7 +11951,31 @@ DB_SHOW_COMMAND(ptpages, pmap_ptpages)
 
 //extern int __kas_vmkern_data_start;
 //extern int __kas_vmkern_data_end;
+#define _KAS
 
+void kas_smp_early_md_init(void* d){
+  for(int i=0; i<mp_ncpus; i++){
+    cpuid_to_pcpu[i]->pc_kas_kcr3 = cpuid_to_pcpu[i]->pc_kcr3;
+  }
+}
+
+extern int __kas_start;
+
+void kas_demote(void);
+void kas_demote(void){
+  vm_offset_t kas_start_vaddr = (vm_offset_t)&__kas_start;
+  pml4_entry_t *kas_start_pml4e = pmap_pml4e(kernel_pmap, kas_start_vaddr);
+  pdp_entry_t *kas_start_pdpe = pmap_pml4e_to_pdpe(kas_start_pml4e, kas_start_vaddr);
+  pd_entry_t *kas_start_pde = pmap_pdpe_to_pde(kas_start_pdpe, kas_start_vaddr);
+
+ 
+  PMAP_LOCK(kernel_pmap);
+  int error = pmap_demote_pde(kernel_pmap, kas_start_pde, kas_start_vaddr);
+  KASSERT(error == TRUE, ("unable to demote 2MB mapping"));
+  PMAP_UNLOCK(kernel_pmap);
+  return;
+}
+#include <sys/kas.h>
 
 /*
  * Initializes the KAS subsystem for SMP machines.
@@ -11964,79 +11988,8 @@ DB_SHOW_COMMAND(ptpages, pmap_ptpages)
  * of accessing currently restricted (aka unmapped) regions.
  */
 void kas_smp_md_init(void* d){
-
-  extern int __kas_start;
-  //  struct kas_md *data = (struct kas_md *)d;
-
-
-  vm_offset_t cur_kcr3_vaddr = PHYS_TO_DMAP(kernel_pmap->pm_cr3);
-  vm_offset_t kas_start_vaddr = (vm_offset_t)&__kas_start;
-
-  pml4_entry_t *kas_start_pml4e = pmap_pml4e(kernel_pmap, kas_start_vaddr);
-  pdp_entry_t *kas_start_pdpe = pmap_pml4e_to_pdpe(kas_start_pml4e, kas_start_vaddr);
-  pd_entry_t *kas_start_pde = pmap_pdpe_to_pde(kas_start_pdpe, kas_start_vaddr);
-
-  PMAP_LOCK(kernel_pmap);
-  int error = pmap_demote_pde(kernel_pmap, kas_start_pde, kas_start_vaddr);
-  KASSERT(error == TRUE, ("unable to demote 2MB mapping"));
-
-  kas_start_pde = pmap_pdpe_to_pde(kas_start_pdpe, kas_start_vaddr);
-
-
-  vm_paddr_t kas_start_pdp_pg_paddr = (*kas_start_pml4e & ~PAGE_MASK);
-  vm_paddr_t kas_start_pd_pg_paddr = (*kas_start_pdpe & ~PAGE_MASK);
-  vm_paddr_t kas_start_pt_pg_paddr = (*kas_start_pde & ~PAGE_MASK);
-
-  vm_pindex_t kas_pml4e_idx = pmap_pml4e_index(kas_start_vaddr);
-  vm_pindex_t kas_pdpe_idx = pmap_pdpe_index(kas_start_vaddr);
-  vm_pindex_t kas_pde_idx = pmap_pde_index(kas_start_vaddr);
-
-  /* Allocate per-cpu top-level pagetables */
-  /* Leave first CPU intact */
-  for(int i=1; i<mp_ncpus; i++){
-    vm_page_t pcpu_kcr3 = vm_page_alloc_noobj(VM_ALLOC_WIRED);
-    vm_page_t kas_pdppg = vm_page_alloc_noobj(VM_ALLOC_WIRED);
-    vm_page_t kas_pdpg = vm_page_alloc_noobj(VM_ALLOC_WIRED);
-    vm_page_t kas_ptpg = vm_page_alloc_noobj(VM_ALLOC_WIRED);
-
-    KASSERT(pcpu_kcr3, ("kas_init: unable to allocate ptpg"));
-
-    vm_offset_t pcpu_kcr3_dmap_vaddr = PHYS_TO_DMAP((vm_paddr_t)pcpu_kcr3->phys_addr);
-    vm_offset_t kas_pdppg_dmap_vaddr = PHYS_TO_DMAP((vm_paddr_t)kas_pdppg->phys_addr);
-    vm_offset_t kas_pdpg_dmap_vaddr = PHYS_TO_DMAP((vm_paddr_t)kas_pdpg->phys_addr);
-    vm_offset_t kas_ptpg_dmap_vaddr = PHYS_TO_DMAP((vm_paddr_t)kas_ptpg->phys_addr);
-    PMAP_UNLOCK(kernel_pmap);
-
-    /* Insert to dmap */
-    pmap_enter(kernel_pmap, pcpu_kcr3_dmap_vaddr, pcpu_kcr3, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
-    pmap_enter(kernel_pmap, kas_pdppg_dmap_vaddr, kas_pdpg, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
-    pmap_enter(kernel_pmap, kas_pdpg_dmap_vaddr, kas_pdppg, VM_PROT_RW, PMAP_ENTER_WIRED, 0);
-    pmap_enter(kernel_pmap, kas_ptpg_dmap_vaddr, kas_ptpg, VM_PROT_RW, PMAP_ENTER_WIRED | VM_PROT_WRITE, 0);
-    PMAP_LOCK(kernel_pmap);
-
-    /* Copy contents of existing pagetable pages */
-    bcopy((void *)cur_kcr3_vaddr, (void *)pcpu_kcr3_dmap_vaddr, PAGE_SIZE);
-    bcopy((void *)PHYS_TO_DMAP(kas_start_pdp_pg_paddr), (void *)kas_pdppg_dmap_vaddr, PAGE_SIZE);
-    bcopy((void *)PHYS_TO_DMAP(kas_start_pd_pg_paddr), (void *)kas_pdpg_dmap_vaddr, PAGE_SIZE);
-    bcopy((void *)PHYS_TO_DMAP(kas_start_pt_pg_paddr), (void *)kas_ptpg_dmap_vaddr, PAGE_SIZE);
-
-    /* Insert new pagetable pages in curcpu pml4 page */
-    ((pml4_entry_t *)pcpu_kcr3_dmap_vaddr)[kas_pml4e_idx] = kas_pdppg->phys_addr | (*kas_start_pml4e & PAGE_MASK);
-    ((pdp_entry_t *)kas_pdppg_dmap_vaddr)[kas_pdpe_idx] = kas_pdpg->phys_addr | (*kas_start_pdpe & PAGE_MASK);
-    ((pd_entry_t *)kas_pdpg_dmap_vaddr)[kas_pde_idx] = kas_ptpg->phys_addr | (*kas_start_pde & PAGE_MASK);
-
-    struct pcpu *cur_pcpu = cpuid_to_pcpu[i];
-    KASSERT(cur_pcpu, ("kas_init: invalid pcpu"));
-    cur_pcpu->pc_kcr3 = pcpu_kcr3->phys_addr;
-    cur_pcpu->pc_ucr3 = -1;
-
-    /* Save pointer to new pagetable page */
-    cur_pcpu->pc_kas_ptpg = kas_ptpg_dmap_vaddr;
-  }
-  /* Save pointer to original pagetable page */
-  cpuid_to_pcpu[0]->pc_kas_ptpg = PHYS_TO_DMAP(kas_start_pt_pg_paddr);
-
-  PMAP_UNLOCK(kernel_pmap);
+  extern struct kas_component kas__components[];
+  extern int kas__no_components;
 
 
   /*
@@ -12049,4 +12002,98 @@ void kas_smp_md_init(void* d){
     /* Save stack top */
     cpuid_to_pcpu[i]->pc_kas_stack = kas_stack_vaddr + (KAS_STACK_PGS * PAGE_SIZE);
   }
+
+
+   //  vm_offset_t cur_kcr3_vaddr = PHYS_TO_DMAP(kernel_pmap->pm_cr3);
+  vm_offset_t kas_start_vaddr = (vm_offset_t)&__kas_start;
+
+  PMAP_LOCK(kernel_pmap);
+
+  pml4_entry_t *kas_start_pml4e = pmap_pml4e(kernel_pmap, kas_start_vaddr);
+  pdp_entry_t *kas_start_pdpe = pmap_pml4e_to_pdpe(kas_start_pml4e, kas_start_vaddr);
+  pd_entry_t *kas_start_pde = pmap_pdpe_to_pde(kas_start_pdpe, kas_start_vaddr);
+
+
+ 
+ vm_paddr_t kas_start_pdp_pg_paddr = (*kas_start_pml4e & PG_FRAME);
+  vm_paddr_t kas_start_pd_pg_paddr = (*kas_start_pdpe & PG_FRAME);
+  vm_paddr_t kas_start_pt_pg_paddr = (*kas_start_pde & PG_FRAME);
+
+  vm_offset_t kcr3_dmap = PHYS_TO_DMAP(kernel_pmap->pm_cr3);
+  vm_offset_t pdppg_dmap = PHYS_TO_DMAP(kas_start_pdp_pg_paddr);
+  vm_offset_t pdpg_dmap = PHYS_TO_DMAP(kas_start_pd_pg_paddr);
+  vm_offset_t ptpg_dmap = PHYS_TO_DMAP(kas_start_pt_pg_paddr);
+
+  vm_pindex_t kas_pml4e_idx = pmap_pml4e_index(kas_start_vaddr);
+  vm_pindex_t kas_pdpe_idx = pmap_pdpe_index(kas_start_vaddr);
+  vm_pindex_t kas_pde_idx = pmap_pde_index(kas_start_vaddr);
+
+
+  
+  /* Allocate per-cpu top-level pagetables */
+  /* Leave first CPU intact */
+  for(int i=1; i<mp_ncpus; i++){
+    vm_page_t pcpu_kcr3 = pmap_alloc_pt_page(kernel_pmap, 0, VM_ALLOC_WIRED | VM_ALLOC_ZERO);
+    vm_page_t kas_pdppg = pmap_alloc_pt_page(kernel_pmap, 0, VM_ALLOC_WIRED | VM_ALLOC_ZERO);
+    vm_page_t kas_pdpg = pmap_alloc_pt_page(kernel_pmap, 0, VM_ALLOC_WIRED | VM_ALLOC_ZERO);
+    vm_page_t kas_ptpg = pmap_alloc_pt_page(kernel_pmap, 0, VM_ALLOC_WIRED | VM_ALLOC_ZERO);
+
+    KASSERT(pcpu_kcr3, ("kas_init: unable to allocate ptpg"));
+
+     vm_offset_t pcpu_kcr3_dmap = PHYS_TO_DMAP((vm_paddr_t)pcpu_kcr3->phys_addr);
+    vm_offset_t kas_pdppg_dmap = PHYS_TO_DMAP((vm_paddr_t)kas_pdppg->phys_addr);
+    vm_offset_t kas_pdpg_dmap = PHYS_TO_DMAP((vm_paddr_t)kas_pdpg->phys_addr);
+     vm_offset_t kas_ptpg_dmap = PHYS_TO_DMAP((vm_paddr_t)kas_ptpg->phys_addr);
+
+    /* Copy contents of existing pagetable pages */
+    pagecopy((void *)kcr3_dmap, (void *)pcpu_kcr3_dmap);
+    pagecopy((void *)pdppg_dmap, (void *)kas_pdppg_dmap);
+    pagecopy((void *)pdpg_dmap, (void *)kas_pdpg_dmap);
+    pagecopy((void *)ptpg_dmap, (void *)kas_ptpg_dmap);
+
+    //  bcopy((void *)cur_kcr3_vaddr, (void *)pcpu_kcr3_dmap_vaddr, PAGE_SIZE);
+    // bcopy((void *)PHYS_TO_DMAP(kas_start_pdp_pg_paddr), (void *)kas_pdppg_dmap_vaddr, PAGE_SIZE);
+    //bcopy((void *)PHYS_TO_DMAP(kas_start_pd_pg_paddr), (void *)kas_pdpg_dmap_vaddr, PAGE_SIZE);
+    //bcopy((void *)PHYS_TO_DMAP(kas_start_pt_pg_paddr), (void *)kas_ptpg_dmap_vaddr, PAGE_SIZE);
+
+    /* Insert new pagetable pages in curcpu pml4 page */
+    ((pml4_entry_t *)pcpu_kcr3_dmap)[kas_pml4e_idx] = kas_pdppg->phys_addr | (*kas_start_pml4e & PAGE_MASK);
+    ((pdp_entry_t *)kas_pdppg_dmap)[kas_pdpe_idx] = kas_pdpg->phys_addr | (*kas_start_pdpe & PAGE_MASK);
+    ((pd_entry_t *)kas_pdpg_dmap)[kas_pde_idx] = kas_ptpg->phys_addr | (*kas_start_pde & PAGE_MASK);
+
+    struct pcpu *cur_pcpu = cpuid_to_pcpu[i];
+    KASSERT(cur_pcpu, ("kas_init: invalid pcpu"));
+    cur_pcpu->pc_kas_kcr3 = pcpu_kcr3->phys_addr;
+
+    /* Save pointer to new pagetable page */
+    cur_pcpu->pc_kas_ptpg = kas_ptpg_dmap;
+
+
+    /* Unmap all components */
+    for(int i=0; i<kas__no_components; i++){
+     struct kas_component *c = &kas__components[i];
+
+      for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
+        ((pt_entry_t *)kas_ptpg_dmap)[i] &=  ~X86_PG_V;
+        invlpg(c->layout.base + (i - c->md.start_pte_idx) * PAGE_SIZE);
+      }
+    }
+
+  }
+  /* Save pointer to original pagetable page */
+  cpuid_to_pcpu[0]->pc_kas_ptpg = PHYS_TO_DMAP(kas_start_pt_pg_paddr);
+
+  /* Unmap all components */
+  for(int i=0; i<kas__no_components; i++){
+    struct kas_component *c = &kas__components[i];
+
+    for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
+      ((pt_entry_t *)cpuid_to_pcpu[0]->pc_kas_ptpg)[i] &=  ~X86_PG_V;
+      invlpg(c->layout.base + (i - c->md.start_pte_idx) * PAGE_SIZE);
+    }
+  }
+
+
+  PMAP_UNLOCK(kernel_pmap);
+
 }

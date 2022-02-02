@@ -7,6 +7,7 @@
 struct kas_md;
 
 void kas_smp_md_init(void* data);
+void kas_smp_early_md_init(void* data);
 
 struct kas_td_ctx {
     register_t	rdx;

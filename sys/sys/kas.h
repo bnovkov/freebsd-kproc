@@ -71,7 +71,7 @@ struct kas_component {
 
 struct kas_priv_data {
   vm_offset_t caller_stack[MAXCPU];
-
+  int initialized;
   struct kas_md md_data;
 };
 

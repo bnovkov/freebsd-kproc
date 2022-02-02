@@ -22,6 +22,7 @@ ENTRY(__kas_syscall)
   pushq %rsi
 
   cli
+ 
   call __kas_md_enter
 
   popq %rsi
@@ -78,4 +79,37 @@ ENTRY(__kas_syscall)
   popq %rbp
   ret
 END(__kas_syscall)
+
+
+ENTRY(__kas_activate_pt)
+  pushq %rbp
+  movq %rsp, %rbp
+
+  movq	%rax,PCPU(SCRATCH_RAX)
+	movq	PCPU(KAS_KCR3),%rax
+	movq	%rax,%cr3
+	movq	PCPU(SCRATCH_RAX),%rax
+
+  movq %rbp, %rsp
+  popq %rbp
+
+  ret
+END(__kas_activate_pt)
+
+
+ENTRY(__kas_deactivate_pt)
+  pushq %rbp
+  movq %rsp, %rbp
+  movq %rax,PCPU(SCRATCH_RAX)
+
+  movq PCPU(KCR3), %rax
+  movq %rax, %cr3
+
+  movq	PCPU(SCRATCH_RAX),%rax
+
+  movq %rbp, %rsp
+  popq %rbp
+
+  ret
+END(__kas_deactivate_pt)
 

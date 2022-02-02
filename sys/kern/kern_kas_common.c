@@ -22,6 +22,8 @@
  * Maps all subsystems during kernel startup.
  */
 
+void kas_demote(void);
+
 static int kas_init(void* data){
   // TODO: alokacije PCPU stackova
   extern int __kas_vmkern_data_start;
@@ -30,16 +32,14 @@ static int kas_init(void* data){
   extern int __kas_vmkern_text_end;
    extern int __kas_vmkern_rodata_start;
   extern int __kas_vmkern_rodata_end;
+
   //  extern int __kas_vmkern_bss_start;
   //extern int __kas_vmkern_bss_end;
 
-  kas_protect((vm_offset_t)&__kas_vmkern_text_start, (vm_offset_t)&__kas_vmkern_text_end,
-              VM_PROT_EXECUTE | VM_PROT_READ , 0);
-	kas_protect((vm_offset_t)&__kas_vmkern_data_start, (vm_offset_t)&__kas_vmkern_data_end,
-            VM_PROT_READ | VM_PROT_WRITE, 0);
-	kas_protect((vm_offset_t)&__kas_vmkern_rodata_start, (vm_offset_t)&__kas_vmkern_rodata_end, VM_PROT_READ, 0);
 	//kas_protect((vm_offset_t)&__kas_vmkern_bss_start, round_page((vm_offset_t)&__kas_vmkern_bss_end),
   //          VM_PROT_READ | VM_PROT_WRITE, 0);
+
+  kas_demote();
 
   __kas_generated_init(NULL);
 
@@ -67,4 +67,5 @@ static int kas_init(void* data){
 extern struct kas_priv_data priv_data;
 
 SYSINIT(kas_boot, SI_SUB_KAS_BOOT, SI_ORDER_FIRST, kas_init, NULL);
+SYSINIT(kas_smp_early, SI_SUB_KAS_SMP_EARLY, SI_ORDER_FIRST, kas_smp_early_md_init, NULL);
 SYSINIT(kas_smp, SI_SUB_KAS_SMP, SI_ORDER_FIRST, kas_smp_md_init, &priv_data.md_data);

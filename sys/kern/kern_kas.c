@@ -40,7 +40,7 @@ static int __kas_activate_component(struct kas_component *c){
 
   for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
     ((pt_entry_t *)cpu_ptpg)[i] |= X86_PG_V;
-    invlpg(c->layout.base + (c->md.end_pte_idx - i) * PAGE_SIZE);
+    invlpg(c->layout.base + (i - c->md.start_pte_idx) * PAGE_SIZE);
   }
 
   return 0;
@@ -52,11 +52,12 @@ static int __kas_deactivate_component(struct kas_component *c){
 
   for(vm_pindex_t i=c->md.start_pte_idx; i<c->md.end_pte_idx; i++){
     ((pt_entry_t *)cpu_ptpg)[i] &= ~X86_PG_V;
-    invlpg(c->layout.base + (c->md.end_pte_idx - i) * PAGE_SIZE);
+    invlpg(c->layout.base + (i - c->md.start_pte_idx) * PAGE_SIZE);
   }
 
   return 0;
 }
+
 
 /*
  * Performs a "privilege switch" to the KAS kernel.
@@ -65,6 +66,7 @@ static int __kas_deactivate_component(struct kas_component *c){
  *
  * Returns ptr to curcpu thread context saving block.
  */
+
 vm_offset_t __kas_md_enter(void){
 
   /* Allow rw access to curcpu kas ptpg */
@@ -94,6 +96,8 @@ void __kas_md_leave(void){
   // pmap_protect(kernel_pmap, cpu_ptpg, cpu_ptpg + PAGE_SIZE, VM_PROT_READ);
 }
 
+void __kas_activate_pt(void);
+void __kas_deactivate_pt(void);
 
 static void __activate_syscall(int syscall_num){
 
@@ -101,7 +105,9 @@ static void __activate_syscall(int syscall_num){
   if(c == NULL){
     return;
   }
-
+  if(curcpu != 0){
+    __kas_activate_pt();
+  }
   __kas_activate_component(c);
 }
 
@@ -113,6 +119,10 @@ static void __deactivate_syscall(int syscall_num){
   }
 
   __kas_deactivate_component(c);
+  if(curcpu != 0){
+    __kas_deactivate_pt();
+  }
+
 }
 
 /*
